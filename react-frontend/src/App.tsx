@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, ThumbsUp, ThumbsDown, Languages, Smile, Frown, Meh } from 'lucide-react';
 
 type Prediction = {
   hashtag: string;
@@ -8,6 +8,7 @@ type Prediction = {
   reasoning: string;
   strategy?: string;
   sentiment?: string;
+  language?: string;
 };
 
 type Analysis = {
@@ -17,6 +18,19 @@ type Analysis = {
   language?: string;
   target_audience?: string;
   sentiment?: string;
+};
+
+type SentimentAnalysis = {
+  sentiment: string;
+  confidence: number;
+  positive_score: number;
+  negative_score: number;
+  neutral_score: number;
+  emotional_tone?: string;
+  key_emotions?: string[];
+  sentiment_keywords?: string[];
+  associated_party?: string;
+  party_confidence?: number;
 };
 
 type ApiConfig = {
@@ -39,6 +53,7 @@ const HashtagPredictor = () => {
   const [loading, setLoading] = useState(false);
   const [copiedHashtag, setCopiedHashtag] = useState('');
   const [analysisDetails, setAnalysisDetails] = useState<Analysis | null>(null);
+  const [sentimentAnalysis, setSentimentAnalysis] = useState<SentimentAnalysis | null>(null);
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     provider: 'azure',
     apiKey: '',
@@ -51,12 +66,11 @@ const HashtagPredictor = () => {
   const [topHashtags, setTopHashtags] = useState<{hashtag: string, score: number}[]>([]);
   const [predictionSource, setPredictionSource] = useState('');
   
-  // New state for strategy selection and sentiment analysis
+  // Enhanced state for new features
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
-  const [sentimentFilter, setSentimentFilter] = useState<string>('all'); // 'all', 'positive', 'negative'
-  const [enableSentimentAnalysis, setEnableSentimentAnalysis] = useState(false);
-
-  // Add a separate state for copied top hashtag
+  const [sentimentFilter, setSentimentFilter] = useState<string>('all');
+  const [enableSentimentAnalysis, setEnableSentimentAnalysis] = useState(true);
+  const [languagePreference, setLanguagePreference] = useState<string>('both');
   const [copiedTopHashtag, setCopiedTopHashtag] = useState('');
 
   const API_BASE_URL = 'http://localhost:8000';
@@ -114,12 +128,12 @@ const HashtagPredictor = () => {
   ];
 
   const sampleContents = [
-    "தமிழ்நாடு அரசு இளைஞர்களுக்கான புதிய வேலைவாய்ப்பு திட்டத்தை அறிவித்துள்ளது. தொழில்நுட்ப பயிற்சி மற்றும் திறன் மேம்பாட்டு திட்டங்கள் மூலம் இளைஞர்கள் மேம்பட்ட வேலைகளை பெறலாம்.",
-    "Tamil Nadu government launches new employment scheme for youth development and skill training programs to create better job opportunities.",
-    "Healthcare infrastructure development in Tamil Nadu with new hospitals and medical facilities for rural areas to improve public health services.",
-    "Women empowerment initiatives and safety measures implemented across Tamil Nadu for gender equality and social justice advancement.",
-    "AI and technology startup ecosystem in Chennai with new incubation centers and funding opportunities for entrepreneurs and innovators.",
-    "Agricultural modernization program with smart farming techniques and support for farmers in rural Tamil Nadu districts."
+    "Tamil Nadu government announces new employment scheme for youth development and skill training programs.",
+    "Healthcare infrastructure development in Tamil Nadu with new hospitals and medical facilities for rural areas.",
+    "Women empowerment initiatives and safety measures implemented across Tamil Nadu for gender equality.",
+    "AI and technology startup ecosystem in Chennai with new incubation centers and funding opportunities.",
+    "Agricultural modernization program with smart farming techniques and support for farmers.",
+    "Education reforms and digital literacy programs launched across Tamil Nadu districts."
   ];
 
   useEffect(() => {
@@ -181,30 +195,32 @@ const HashtagPredictor = () => {
     setError('');
     setPredictions([]);
     setAnalysisDetails(null);
+    setSentimentAnalysis(null);
 
     try {
-const allStrategyKeys = [
-  'piggybacking',
-  'hijacking',
-  'semantic_shifting',
-  'linking_pairing',
-  'seeding',
-  'challenges',
-  'clustering',
-  'mutation'
-];
-const strategiesObj = allStrategyKeys.reduce((acc, key) => {
-  acc[key] = selectedStrategies.includes(key);
-  return acc;
-}, {} as Record<string, boolean>);
+      const allStrategyKeys = [
+        'piggybacking',
+        'hijacking',
+        'semantic_shifting',
+        'linking_pairing',
+        'seeding',
+        'challenges',
+        'clustering',
+        'mutation'
+      ];
+      const strategiesObj = allStrategyKeys.reduce((acc, key) => {
+        acc[key] = selectedStrategies.includes(key);
+        return acc;
+      }, {} as Record<string, boolean>);
 
-let payload: any = {
-  content: content,
-  max_hashtags: 15,
-  strategies: strategiesObj,
-  sentiment_analysis: enableSentimentAnalysis,
-  sentiment_filter: sentimentFilter !== 'all' ? sentimentFilter : undefined
-};
+      let payload: any = {
+        content: content,
+        max_hashtags: 15,
+        strategies: strategiesObj,
+        enable_sentiment_analysis: enableSentimentAnalysis,
+        language_preference: languagePreference,
+        sentiment: sentimentFilter !== 'all' ? sentimentFilter : undefined
+      };
 
       // Only add config if apiKey is present
       if (apiConfig.apiKey) {
@@ -235,6 +251,7 @@ let payload: any = {
       const result = await response.json();
       setPredictions(result.hashtags || []);
       setAnalysisDetails(result.analysis || {});
+      setSentimentAnalysis(result.sentiment_analysis || null);
       setPredictionSource(result.source || 'Unknown');
 
     } catch (err: any) {
@@ -301,14 +318,8 @@ let payload: any = {
       'ml_predicted': 'bg-teal-100 text-teal-700',
       'extracted': 'bg-gray-100 text-gray-700',
       'strategy': 'bg-red-100 text-red-700',
-      'piggybacking': 'bg-yellow-100 text-yellow-700',
-      'hijacking': 'bg-cyan-100 text-cyan-700',
-      'semantic_shifting': 'bg-violet-100 text-violet-700',
-      'linking_pairing': 'bg-emerald-100 text-emerald-700',
-      'seeding': 'bg-lime-100 text-lime-700',
-      'challenges': 'bg-amber-100 text-amber-700',
-      'clustering': 'bg-rose-100 text-rose-700',
-      'mutation': 'bg-slate-100 text-slate-700',
+      'tn_politics': 'bg-amber-100 text-amber-700',
+      'sentiment_based': 'bg-rose-100 text-rose-700',
       'default': 'bg-gray-100 text-gray-700'
     };
     return colors[category] || colors.default;
@@ -317,11 +328,11 @@ let payload: any = {
   const getSentimentIcon = (sentiment: string) => {
     switch (sentiment) {
       case 'positive':
-        return <ThumbsUp className="w-4 h-4 text-green-600" />;
+        return <Smile className="w-4 h-4 text-green-600" />;
       case 'negative':
-        return <ThumbsDown className="w-4 h-4 text-red-600" />;
+        return <Frown className="w-4 h-4 text-red-600" />;
       default:
-        return <Heart className="w-4 h-4 text-gray-600" />;
+        return <Meh className="w-4 h-4 text-gray-600" />;
     }
   };
 
@@ -331,6 +342,32 @@ let payload: any = {
         return 'bg-green-100 text-green-700';
       case 'negative':
         return 'bg-red-100 text-red-700';
+      default:
+        return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const getLanguageIcon = (language: string) => {
+    switch (language) {
+      case 'tamil':
+        return <span className="text-xs font-bold text-orange-600">TM</span>;
+      case 'english':
+        return <span className="text-xs font-bold text-blue-600">EN</span>;
+      case 'mixed':
+        return <span className="text-xs font-bold text-purple-600">MX</span>;
+      default:
+        return <Languages className="w-3 h-3 text-gray-600" />;
+    }
+  };
+
+  const getLanguageColor = (language: string) => {
+    switch (language) {
+      case 'tamil':
+        return 'bg-orange-100 text-orange-700';
+      case 'english':
+        return 'bg-blue-100 text-blue-700';
+      case 'mixed':
+        return 'bg-purple-100 text-purple-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
@@ -356,7 +393,7 @@ let payload: any = {
             </button>
           </div>
           <p className="text-gray-600 text-lg max-w-3xl mx-auto">
-            Advanced AI-powered hashtag prediction using Azure OpenAI + ML model trained on Meta Ads data for intelligent social media optimization
+            Advanced AI-powered hashtag prediction with enhanced sentiment analysis and language-specific recommendations for Tamil Nadu politics
           </p>
           <div className="flex items-center justify-center gap-2 mt-3">
             {getStatusIcon()}
@@ -429,7 +466,7 @@ let payload: any = {
                   <div className="flex items-start gap-2">
                     <Sparkles className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                     <div>
-                      <strong>Pro Tip:</strong> Leave API key empty to use our local ML model trained on Meta Ads data. Add your API key for enhanced AI predictions.
+                      <strong>Pro Tip:</strong> Leave API key empty to use our local ML model trained on Meta Ads data. Add your API key for enhanced AI predictions with sentiment analysis.
                     </div>
                   </div>
                 </div>
@@ -470,7 +507,7 @@ let payload: any = {
                   <textarea
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
-                    placeholder="Enter your content here... தமிழில் அல்லது ஆங்கிலத்தில் உள்ளடக்கத்தை உள்ளிடவும்"
+                    placeholder="Enter your content here for hashtag analysis..."
                     className="w-full h-32 p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-700 placeholder-gray-400"
                   />
                   <div className="text-xs text-gray-500 mt-1 flex justify-between">
@@ -478,6 +515,52 @@ let payload: any = {
                     <span className="text-blue-600">
                       {content.length > 0 ? '✓ Ready for analysis' : 'Enter content to start'}
                     </span>
+                  </div>
+                </div>
+
+                {/* Language Preference */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Languages className="w-4 h-4" />
+                    Hashtag Language Preference
+                  </label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="language"
+                        value="tamil"
+                        checked={languagePreference === 'tamil'}
+                        onChange={(e) => setLanguagePreference(e.target.value)}
+                        className="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+                      />
+                      <span className="text-sm text-gray-700 flex items-center gap-1">
+                        <span className="text-orange-600 font-bold">TM</span>
+                        Tamil
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="language"
+                        value="english"
+                        checked={languagePreference === 'english'}
+                        onChange={(e) => setLanguagePreference(e.target.value)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-blue-700">English</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="language"
+                        value="both"
+                        checked={languagePreference === 'both'}
+                        onChange={(e) => setLanguagePreference(e.target.value)}
+                        className="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                      />
+                      <span className="text-sm text-purple-700">Both / Mixed</span>
+                    </label>
                   </div>
                 </div>
 
@@ -580,7 +663,7 @@ let payload: any = {
               </div>
             </div>
 
-            {/* Sentiment Analysis Options */}
+            {/* Enhanced Sentiment Analysis Options */}
             <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
               <div className="flex items-center gap-2 mb-4">
                 <Heart className="w-5 h-5 text-pink-600" />
@@ -596,15 +679,15 @@ let payload: any = {
                     className="w-4 h-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
                   />
                   <div>
-                    <div className="font-medium text-gray-800">Enable Sentiment Analysis</div>
-                    <div className="text-xs text-gray-600">Analyze hashtag sentiment and emotional tone</div>
+                    <div className="font-medium text-gray-800">Enable Enhanced Sentiment Analysis</div>
+                    <div className="text-xs text-gray-600">Analyze hashtag sentiment, emotional tone, and political alignment</div>
                   </div>
                 </label>
 
                 {enableSentimentAnalysis && (
-                  <div className="ml-7 space-y-2">
+                  <div className="ml-7 space-y-3">
                     <p className="text-sm font-medium text-gray-700 mb-2">Filter by sentiment:</p>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
@@ -626,7 +709,7 @@ let payload: any = {
                           className="w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
                         />
                         <span className="text-sm text-green-700 flex items-center gap-1">
-                          <ThumbsUp className="w-3 h-3" />
+                          <Smile className="w-3 h-3" />
                           Positive
                         </span>
                       </label>
@@ -640,7 +723,7 @@ let payload: any = {
                           className="w-4 h-4 text-red-600 border-gray-300 focus:ring-red-500"
                         />
                         <span className="text-sm text-red-700 flex items-center gap-1">
-                          <ThumbsDown className="w-3 h-3" />
+                          <Frown className="w-3 h-3" />
                           Negative
                         </span>
                       </label>
@@ -650,7 +733,96 @@ let payload: any = {
               </div>
             </div>
 
-            {/* Analysis Details */}
+            {/* Enhanced Sentiment Analysis Results */}
+            {sentimentAnalysis && (
+              <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Heart className="w-5 h-5 text-pink-600" />
+                  <h3 className="text-xl font-semibold text-gray-800">Sentiment Analysis Results</h3>
+                </div>
+                
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                      {getSentimentIcon(sentimentAnalysis.sentiment)}
+                      Overall Sentiment
+                    </h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Primary:</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${getSentimentColor(sentimentAnalysis.sentiment)}`}>
+                          {sentimentAnalysis.sentiment} ({(sentimentAnalysis.confidence * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                      {sentimentAnalysis.emotional_tone && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Tone:</span>
+                          <span className="text-sm font-medium text-gray-800 capitalize">{sentimentAnalysis.emotional_tone}</span>
+                        </div>
+                      )}
+                      {sentimentAnalysis.associated_party && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Political Alignment:</span>
+                          <span className="text-sm font-medium text-blue-800">{sentimentAnalysis.associated_party}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-medium text-gray-700 mb-3">Sentiment Breakdown</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-green-600">Positive:</span>
+                        <span className="text-sm font-medium">{(sentimentAnalysis.positive_score * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-red-600">Negative:</span>
+                        <span className="text-sm font-medium">{(sentimentAnalysis.negative_score * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Neutral:</span>
+                        <span className="text-sm font-medium">{(sentimentAnalysis.neutral_score * 100).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {(sentimentAnalysis.key_emotions && sentimentAnalysis.key_emotions.length > 0) && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-gray-700 mb-2">Key Emotions Detected</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {sentimentAnalysis.key_emotions.map((emotion, index) => (
+                        <span 
+                          key={index}
+                          className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm capitalize font-medium"
+                        >
+                          {emotion}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(sentimentAnalysis.sentiment_keywords && sentimentAnalysis.sentiment_keywords.length > 0) && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-gray-700 mb-2">Sentiment Keywords</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {sentimentAnalysis.sentiment_keywords.map((keyword, index) => (
+                        <span 
+                          key={index}
+                          className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-md text-sm font-medium"
+                        >
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Enhanced Analysis Details */}
             {analysisDetails && (
               <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
                 <div className="flex items-center gap-2 mb-4">
@@ -763,72 +935,81 @@ let payload: any = {
                 </div>
               )}
 
-{predictions.length > 0 && (
-  <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-    {predictions.map((prediction, index) => (
-      <div 
-        key={prediction.hashtag}
-        className="p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border border-gray-100 hover:shadow-lg transition-all duration-200 hover:border-blue-200"
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <span className="w-7 h-7 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
-              {index + 1}
-            </span>
-            <span className="font-bold text-gray-800 text-lg">#{prediction.hashtag}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
-              {prediction.score}
-            </span>
-            {/* Show sentiment if available */}
-            {prediction.sentiment && (
-              <span
-                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium capitalize ${getSentimentColor(prediction.sentiment)}`}
-                title={`Sentiment: ${prediction.sentiment}`}
-              >
-                {getSentimentIcon(prediction.sentiment)}
-                {prediction.sentiment}
-              </span>
-            )}
-            <button
-              onClick={() => copyHashtag(prediction.hashtag)}
-              className="p-2 hover:bg-blue-100 rounded-lg transition-colors duration-200"
-              title="Copy hashtag"
-            >
-              {copiedHashtag === prediction.hashtag ? (
-                <Check className="w-4 h-4 text-green-600" />
-              ) : (
-                <Copy className="w-4 h-4 text-gray-500" />
+              {predictions.length > 0 && (
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                  {predictions.map((prediction, index) => (
+                    <div 
+                      key={prediction.hashtag}
+                      className="p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border border-gray-100 hover:shadow-lg transition-all duration-200 hover:border-blue-200"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-7 h-7 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                            {index + 1}
+                          </span>
+                          <span className="font-bold text-gray-800 text-lg">#{prediction.hashtag}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+                            {prediction.score}
+                          </span>
+                          {/* Show sentiment if available */}
+                          {prediction.sentiment && (
+                            <span
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium capitalize ${getSentimentColor(prediction.sentiment)}`}
+                              title={`Sentiment: ${prediction.sentiment}`}
+                            >
+                              {getSentimentIcon(prediction.sentiment)}
+                              {prediction.sentiment}
+                            </span>
+                          )}
+                          {/* Show language if available */}
+                          {prediction.language && (
+                            <span
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getLanguageColor(prediction.language)}`}
+                              title={`Language: ${prediction.language}`}
+                            >
+                              {getLanguageIcon(prediction.language)}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => copyHashtag(prediction.hashtag)}
+                            className="p-2 hover:bg-blue-100 rounded-lg transition-colors duration-200"
+                            title="Copy hashtag"
+                          >
+                            {copiedHashtag === prediction.hashtag ? (
+                              <Check className="w-4 h-4 text-green-600" />
+                            ) : (
+                              <Copy className="w-4 h-4 text-gray-500" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="text-sm text-gray-600 mb-3 leading-relaxed">
+                        {prediction.reasoning}
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getCategoryColor(prediction.category)}`}>
+                          {prediction.category.replace('_', ' ')}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out"
+                              style={{ width: `${Math.min(prediction.score, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 font-medium">
+                            {Math.min(prediction.score, 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </button>
-          </div>
-        </div>
-        
-        <div className="text-sm text-gray-600 mb-3 leading-relaxed">
-          {prediction.reasoning}
-        </div>
-        
-        <div className="flex items-center justify-between">
-          <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getCategoryColor(prediction.category)}`}>
-            {prediction.category.replace('_', ' ')}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out"
-                style={{ width: `${Math.min(prediction.score, 100)}%` }}
-              />
-            </div>
-            <span className="text-xs text-gray-500 font-medium">
-              {Math.min(prediction.score, 100)}%
-            </span>
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>
-)}
             </div>
 
             {/* Top Hashtags Section */}
@@ -894,11 +1075,10 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
   const [hashtags, setHashtags] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastPlatform, setLastPlatform] = useState('all');
   const [copiedHashtag, setCopiedHashtag] = useState<string>('');
 
   const API_BASE_URL = 'http://localhost:8000';
-  const { apiKey, provider, endpoint, model } = apiConfig; // get from your state
+  const { apiKey, provider, endpoint, model } = apiConfig;
 
   const fetchTrending = async (selectedPlatform: string) => {
     setLoading(true);
@@ -919,7 +1099,6 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
       if (!resp.ok) throw new Error('Failed to fetch trending hashtags');
       const data = await resp.json();
       setHashtags(data.top_trending_hashtags || []);
-      setLastPlatform(selectedPlatform);
     } catch (e: any) {
       setError(e.message || 'Error fetching trending hashtags');
     } finally {
@@ -935,11 +1114,10 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
 
   useEffect(() => {
     fetchTrending(platform);
-    // eslint-disable-next-line
   }, [platform]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
+    <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
       <div className="flex items-center gap-2 mb-4">
         <BarChart3 className="w-5 h-5 text-pink-600" />
         <h3 className="text-xl font-semibold text-gray-800">Top Trending Hashtags</h3>
@@ -978,7 +1156,7 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
                 <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded">{item.platform}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">{item.reason}</span>
+                <span className="text-xs text-gray-500 max-w-24 truncate">{item.reason}</span>
                 <button
                   onClick={() => copyHashtag(item.hashtag)}
                   className="p-1 hover:bg-pink-100 rounded transition-colors duration-200"

@@ -19,6 +19,7 @@ import textwrap
 from fastapi import Query
 from contextlib import asynccontextmanager
 import aiofiles
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-
         async with aiofiles.open("output.json", "r", encoding="utf-8") as f:
             content = await f.read()
             ads_data = json.loads(content)
@@ -49,71 +49,135 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Tamil Nadu Politics Hashtag Strategies
+# Enhanced Tamil Nadu Politics Hashtag Strategies with language support
 TN_POLITICS_STRATEGIES = {
     "piggybacking": {
         "name": "Piggybacking",
         "description": "Ride main election wave",
-        "examples": ["#DMKForPeople", "#TamilNaduElections2026", "#AIADMKForChange", "#TNAssembly2026"],
-        "keywords": ["elections", "vote", "campaign", "democracy", "people"]
+        "examples": {
+            "tamil": ["#மக்களுக்காகDMK", "#தமிழ்நாடுதேர்தல்2026", "#மாற்றத்திற்குAIADMK", "#TNசட்டசபை2026"],
+            "english": ["#DMKForPeople", "#TamilNaduElections2026", "#AIADMKForChange", "#TNAssembly2026"],
+            "both": ["#DMKForPeople", "#மக்களுக்காகDMK", "#TamilNaduElections2026", "#தமிழ்நாடுதேர்தல்2026"]
+        },
+        "keywords": ["elections", "vote", "campaign", "democracy", "people", "தேர்தல்", "வாக்கு", "பிரச்சாரம்", "ஜனநாயகம்", "மக்கள்"]
     },
     "hijacking": {
         "name": "Hijacking",
         "description": "Flip opposition slogan",
-        "examples": ["#CorruptionFreeTamilNadu", "#TransparentGovt", "#AccountableLeadership", "#CleanPolitics"],
-        "keywords": ["corruption", "transparent", "accountable", "clean", "honest"]
+        "examples": {
+            "tamil": ["#ஊழல்இல்லாதமிழ்நாடு", "#வெளிப்படையானஅரசு", "#பொறுப்புக்கூறல்", "#தூய்மையானஅரசியல்"],
+            "english": ["#CorruptionFreeTamilNadu", "#TransparentGovt", "#AccountableLeadership", "#CleanPolitics"],
+            "both": ["#CorruptionFreeTamilNadu", "#ஊழல்இல்லாதமிழ்நாடு", "#TransparentGovt", "#வெளிப்படையானஅரசு"]
+        },
+        "keywords": ["corruption", "transparent", "accountable", "clean", "honest", "ஊழல்", "வெளிப்படை", "பொறுப்பு", "தூய்மை"]
     },
     "semantic_shifting": {
         "name": "Semantic Shifting",
         "description": "Own the narrative",
-        "examples": ["#DravidianModel", "#TNDevelopment", "#SouthIndianPride", "#TamilCulture"],
-        "keywords": ["dravidian", "development", "culture", "heritage", "progress"]
+        "examples": {
+            "tamil": ["#திராவிடமாதிரி", "#தமிழ்நாடுவளர்ச்சி", "#தென்னிந்தியபெருமை", "#தமிழ்பண்பாடு"],
+            "english": ["#DravidianModel", "#TNDevelopment", "#SouthIndianPride", "#TamilCulture"],
+            "both": ["#DravidianModel", "#திராவிடமாதிரி", "#TNDevelopment", "#தமிழ்நாடுவளர்ச்சி"]
+        },
+        "keywords": ["dravidian", "development", "culture", "heritage", "progress", "திராவிட", "வளர்ச்சி", "பண்பாடு", "பாரம்பரியம்", "முன்னேற்றம்"]
     },
     "linking_pairing": {
         "name": "Linking / Pairing",
         "description": "Build identity-based tag networks",
-        "examples": ["#DMKForFarmers", "#AIADMKForWomen", "#TNForYouth", "#DravidianValues"],
-        "keywords": ["farmers", "women", "youth", "workers", "students"]
+        "examples": {
+            "tamil": ["#விவசாயிகளுக்குDMK", "#பெண்களுக்குAIADMK", "#இளைஞர்களுக்குTN", "#திராவிடமதிப்புகள்"],
+            "english": ["#DMKForFarmers", "#AIADMKForWomen", "#TNForYouth", "#DravidianValues"],
+            "both": ["#DMKForFarmers", "#விவசாயிகளுக்குDMK", "#TNForYouth", "#இளைஞர்களுக்குTN"]
+        },
+        "keywords": ["farmers", "women", "youth", "workers", "students", "விவசாயிகள்", "பெண்கள்", "இளைஞர்கள்", "தொழிலாளர்கள்", "மாணவர்கள்"]
     },
     "seeding": {
         "name": "Seeding",
         "description": "Start unique, memorable campaigns",
-        "examples": ["#MakkalNambikkai", "#DMK2026Win", "#TNNewEra", "#TamilNaduFirst"],
-        "keywords": ["unique", "memorable", "campaign", "movement", "change"]
+        "examples": {
+            "tamil": ["#மக்கள்நம்பிக்கை", "#DMK2026வெற்றி", "#தமிழ்நாடுபுதியகாலம்", "#தமிழ்நாடுமுதலில்"],
+            "english": ["#MakkalNambikkai", "#DMK2026Win", "#TNNewEra", "#TamilNaduFirst"],
+            "both": ["#MakkalNambikkai", "#மக்கள்நம்பிக்கை", "#TNNewEra", "#தமிழ்நாடுபுதியகாலம்"]
+        },
+        "keywords": ["unique", "memorable", "campaign", "movement", "change", "தனித்துவம்", "நினைவில்நிற்கும்", "பிரச்சாரம்", "இயக்கம்", "மாற்றம்"]
     },
     "challenges": {
         "name": "Challenges",
         "description": "Drive user-generated content",
-        "examples": ["#EnOoruEnPerumai", "#MyTamilNadu", "#TNChallenge", "#ShowYourPride"],
-        "keywords": ["challenge", "participate", "show", "share", "my"]
+        "examples": {
+            "tamil": ["#எனூர்எனபெருமை", "#எனதமிழ்நாடு", "#தமிழ்நாடுசவால்", "#உங்கள்பெருமையைகாட்டுங்கள்"],
+            "english": ["#EnOoruEnPerumai", "#MyTamilNadu", "#TNChallenge", "#ShowYourPride"],
+            "both": ["#MyTamilNadu", "#எனதமிழ்நாடு", "#TNChallenge", "#தமிழ்நாடுசவால்"]
+        },
+        "keywords": ["challenge", "participate", "show", "share", "my", "சவால்", "பங்கேற்கவும்", "காட்டு", "பகிர்", "என்"]
     },
     "clustering": {
         "name": "Clustering",
         "description": "Balance broad + niche + brand appeal",
-        "examples": ["#TamilNadu", "#Chennai", "#DMK", "#Development", "#Education"],
-        "keywords": ["broad", "specific", "brand", "location", "sector"]
+        "examples": {
+            "tamil": ["#தமிழ்நாடு", "#சென்னை", "#திமுக", "#வளர்ச்சி", "#கல்வி"],
+            "english": ["#TamilNadu", "#Chennai", "#DMK", "#Development", "#Education"],
+            "both": ["#TamilNadu", "#தமிழ்நாடு", "#Chennai", "#சென்னை", "#Education", "#கல்வி"]
+        },
+        "keywords": ["broad", "specific", "brand", "location", "sector", "பரந்த", "குறிப்பிட்ட", "பிராண்ட்", "இடம்", "துறை"]
     },
     "mutation": {
         "name": "Mutation",
         "description": "Target sub-regions or groups",
-        "examples": ["#DMKForYouth", "#AIADMKInSouthTN", "#ChennaiFirst", "#CoimbatoreVotes"],
-        "keywords": ["youth", "region", "city", "district", "community"]
+        "examples": {
+            "tamil": ["#இளைஞர்களுக்குDMK", "#தென்தமிழ்நாட்டில்AIADMK", "#சென்னைமுதலில்", "#கோவைவாக்குகள்"],
+            "english": ["#DMKForYouth", "#AIADMKInSouthTN", "#ChennaiFirst", "#CoimbatoreVotes"],
+            "both": ["#DMKForYouth", "#இளைஞர்களுக்குDMK", "#ChennaiFirst", "#சென்னைமுதலில்"]
+        },
+        "keywords": ["youth", "region", "city", "district", "community", "இளைஞர்", "பகுதி", "நகரம்", "மாவட்டம்", "சமுதாயம்"]
     }
 }
 
-# Sentiment-based hashtag templates
+# Enhanced sentiment-based hashtag templates with language support
 SENTIMENT_HASHTAGS = {
     "positive": {
-        "government": ["#ProgressiveTN", "#DevelopingTamilNadu", "#TNSuccess", "#ProudTamil", "#TNAchievements"],
-        "social": ["#UnityInDiversity", "#TNFamily", "#TogetherWeCan", "#BrightFuture", "#TNRising"],
-        "development": ["#SmartTN", "#DigitalTamilNadu", "#InnovativeTN", "#ModernTN", "#TNLeads"],
-        "cultural": ["#TamilPride", "#RichHeritage", "#CulturalTN", "#TamilTradition", "#TNValues"]
+        "government": {
+            "tamil": ["#முன்னேற்றத்தில்TN", "#வளர்ந்துவருதமிழ்நாடு", "#தமிழ்நாடுவெற்றி", "#பெருமைதமிழ்", "#தமிழ்நாடுசாதனைகள்"],
+            "english": ["#ProgressiveTN", "#DevelopingTamilNadu", "#TNSuccess", "#ProudTamil", "#TNAchievements"],
+            "both": ["#ProgressiveTN", "#முன்னேற்றத்தில்TN", "#TNSuccess", "#தமிழ்நாடுவெற்றி", "#ProudTamil", "#பெருமைதமிழ்"]
+        },
+        "social": {
+            "tamil": ["#பன்முகத்துவத்தில்ஒற்றுமை", "#தமிழ்நாடுகுடும்பம்", "#ஒன்றாகமுடியும்", "#பிரகாசமானஎதிர்காலம்", "#தமிழ்நாடுமேலெழும்புகிறது"],
+            "english": ["#UnityInDiversity", "#TNFamily", "#TogetherWeCan", "#BrightFuture", "#TNRising"],
+            "both": ["#UnityInDiversity", "#பன்முகத்துவத்தில்ஒற்றுமை", "#TogetherWeCan", "#ஒன்றாகமுடியும்", "#BrightFuture", "#பிரகாசமானஎதிர்காலம்"]
+        },
+        "development": {
+            "tamil": ["#ஸ்மார்ட்TN", "#டிஜிட்டல்தமிழ்நாடு", "#புதுமையானTN", "#நவீனTN", "#தமிழ்நாடுமுன்னணி"],
+            "english": ["#SmartTN", "#DigitalTamilNadu", "#InnovativeTN", "#ModernTN", "#TNLeads"],
+            "both": ["#SmartTN", "#ஸ்மார்ட்TN", "#DigitalTamilNadu", "#டிஜிட்டல்தமிழ்நாடு", "#TNLeads", "#தமிழ்நாடுமுன்னணி"]
+        },
+        "cultural": {
+            "tamil": ["#தமிழ்பெருமை", "#வளமானபாரம்பரியம்", "#பண்பாட்டுTN", "#தமிழ்பாரம்பரியம்", "#தமிழ்நாடுமதிப்புகள்"],
+            "english": ["#TamilPride", "#RichHeritage", "#CulturalTN", "#TamilTradition", "#TNValues"],
+            "both": ["#TamilPride", "#தமிழ்பெருமை", "#RichHeritage", "#வளமானபாரம்பரியம்", "#TNValues", "#தமிழ்நாடுமதிப்புகள்"]
+        }
     },
     "negative": {
-        "opposition": ["#FailedPolicies", "#EmptyPromises", "#CorruptLeadership", "#TNDeservesBetter", "#TimeForChange"],
-        "issues": ["#FixTNIssues", "#TNStruggles", "#UnansweredQuestions", "#AccountabilityNow", "#JusticeForTN"],
-        "criticism": ["#TNNeedsChange", "#BrokenSystem", "#FailedGovernance", "#TNDemandsMore", "#EnoughIsEnough"],
-        "call_to_action": ["#WakeUpTN", "#QuestionLeaders", "#DemandAnswers", "#TNDeservesTruth", "#ActNow"]
+        "opposition": {
+            "tamil": ["#தோல்வியடைந்தகொள்கைகள்", "#வெற்றுவாக்குறுதிகள்", "#ஊழல்தலைமை", "#தமிழ்நாடுசிறந்ததுபெறவேண்டும்", "#மாற்றத்திற்குநேரம்"],
+            "english": ["#FailedPolicies", "#EmptyPromises", "#CorruptLeadership", "#TNDeservesBetter", "#TimeForChange"],
+            "both": ["#FailedPolicies", "#தோல்வியடைந்தகொள்கைகள்", "#EmptyPromises", "#வெற்றுவாக்குறுதிகள்", "#TimeForChange", "#மாற்றத்திற்குநேரம்"]
+        },
+        "issues": {
+            "tamil": ["#தமிழ்நாடுபிரச்சனைகளைசரிசெய்", "#தமிழ்நாடுபோராட்டங்கள்", "#பதிலில்லாதகேள்விகள்", "#இப்போதுபொறுப்புக்கூறல்", "#தமிழ்நாடுநீதி"],
+            "english": ["#FixTNIssues", "#TNStruggles", "#UnansweredQuestions", "#AccountabilityNow", "#JusticeForTN"],
+            "both": ["#FixTNIssues", "#தமிழ்நாடுபிரச்சனைகளைசரிசெய்", "#TNStruggles", "#தமிழ்நாடுபோராட்டங்கள்", "#JusticeForTN", "#தமிழ்நாடுநீதி"]
+        },
+        "criticism": {
+            "tamil": ["#தமிழ்நாடுமாற்றம்தேவை", "#உடைந்தசிஸ்டம்", "#தோல்வியடைந்தஆட்சி", "#தமிழ்நாடுமேலும்கோருகிறது", "#போதும்போதும்"],
+            "english": ["#TNNeedsChange", "#BrokenSystem", "#FailedGovernance", "#TNDemandsMore", "#EnoughIsEnough"],
+            "both": ["#TNNeedsChange", "#தமிழ்நாடுமாற்றம்தேவை", "#BrokenSystem", "#உடைந்தசிஸ்டம்", "#EnoughIsEnough", "#போதும்போதும்"]
+        },
+        "call_to_action": {
+            "tamil": ["#எழுந்திருTN", "#தலைவர்களைகேள்வி", "#பதில்கோருங்கள்", "#தமிழ்நாடுஉண்மைபெறவேண்டும்", "#இப்போதுசெயல்படுங்கள்"],
+            "english": ["#WakeUpTN", "#QuestionLeaders", "#DemandAnswers", "#TNDeservesTruth", "#ActNow"],
+            "both": ["#WakeUpTN", "#எழுந்திருTN", "#QuestionLeaders", "#தலைவர்களைகேள்வி", "#ActNow", "#இப்போதுசெயல்படுங்கள்"]
+        }
     }
 }
 
@@ -145,6 +209,8 @@ class PredictHashtagFullRequest(BaseModel):
     strategies: Optional[HashtagStrategies] = None
     sentiment: Optional[str] = Field(None, description="positive, negative, or neutral")
     include_tn_politics: bool = False
+    language_preference: str = Field(default="both", description="tamil, english, or both")
+    enable_sentiment_analysis: bool = Field(default=True, description="Enable advanced sentiment analysis")
 
 class HashtagResult(BaseModel):
     hashtag: str
@@ -153,6 +219,7 @@ class HashtagResult(BaseModel):
     reasoning: str
     strategy: Optional[str] = None
     sentiment: Optional[str] = None
+    language: Optional[str] = None
 
 class SentimentAnalysis(BaseModel):
     sentiment: str
@@ -160,6 +227,9 @@ class SentimentAnalysis(BaseModel):
     positive_score: float
     negative_score: float
     neutral_score: float
+    emotional_tone: Optional[str] = None
+    key_emotions: Optional[List[str]] = None
+    sentiment_keywords: Optional[List[str]] = None
 
 class PredictionResponse(BaseModel):
     hashtags: List[HashtagResult]
@@ -190,49 +260,91 @@ class HashtagAnalyzer:
         hashtags = re.findall(r'#\w+', str(text).lower())
         return [tag.replace('#', '') for tag in hashtags]
     
-    def analyze_sentiment(self, text: str) -> SentimentAnalysis:
-        """Simple sentiment analysis using keyword matching"""
+    def enhanced_sentiment_analysis(self, text: str) -> SentimentAnalysis:
+        """Enhanced sentiment analysis with emotional tone detection"""
+        # Enhanced word lists with Tamil words
         positive_words = [
             'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'awesome', 
             'success', 'achievement', 'progress', 'development', 'growth', 'improvement',
-            'நல்ல', 'மிகச்சிறந்த', 'வெற்றி', 'முன்னேற்றம்', 'வளர்ச்சி'
+            'love', 'happy', 'joy', 'celebration', 'victory', 'proud', 'beautiful',
+            'நல்ல', 'மிகச்சிறந்த', 'வெற்றி', 'முன்னேற்றம்', 'வளர்ச்சி', 'மகிழ்ச்சி', 
+            'அழகான', 'பெருமை', 'சந்தோஷம்', 'கொண்டாட்டம்', 'அற்புதம்'
         ]
         
         negative_words = [
             'bad', 'terrible', 'awful', 'horrible', 'failure', 'problem', 'issue',
             'corruption', 'failed', 'broken', 'wrong', 'disappointing', 'poor',
-            'கெட்ட', 'மோசம்', 'தோல்வி', 'பிரச்சனை', 'ஊழல்'
+            'sad', 'angry', 'hate', 'disgusting', 'shameful', 'disappointing',
+            'கெட்ட', 'மோசம்', 'தோல்வி', 'பிரச்சனை', 'ஊழல்', 'கோபம்', 
+            'வருத்தம்', 'வெட்கம்', 'ஏமாற்றம்', 'துக்கம்'
         ]
         
+        emotional_words = {
+            'joy': ['happy', 'joy', 'celebrate', 'மகிழ்ச்சி', 'சந்தோஷம்', 'கொண்டாட்டம்'],
+            'anger': ['angry', 'mad', 'furious', 'கோபம்', 'எரிச்சல்', 'கடுப்பு'],
+            'sadness': ['sad', 'depressed', 'sorrow', 'துக்கம்', 'வருத்தம்', 'சோகம்'],
+            'fear': ['scared', 'afraid', 'worried', 'பயம்', 'கவலை', 'அச்சம்'],
+            'surprise': ['surprised', 'shocked', 'amazed', 'ஆச்சரியம்', 'அதிர்ச்சி', 'வியப்பு'],
+            'trust': ['trust', 'believe', 'confident', 'நம்பிக்கை', 'நம்பகம்', 'தன்னம்பிக்கை'],
+            'anticipation': ['excited', 'eager', 'hopeful', 'உற்சாகம்', 'ஆவல்', 'நம்பிக்கை']
+        }
+        
         text_lower = text.lower()
+        words = text_lower.split()
+        total_words = len(words)
+        
+        # Basic sentiment scoring
         positive_count = sum(1 for word in positive_words if word in text_lower)
         negative_count = sum(1 for word in negative_words if word in text_lower)
         
-        total_words = len(text.split())
         positive_score = positive_count / max(total_words, 1)
         negative_score = negative_count / max(total_words, 1)
         neutral_score = 1 - (positive_score + negative_score)
         
+        # Emotional tone detection
+        emotion_scores = {}
+        for emotion, emotion_words_list in emotional_words.items():
+            emotion_count = sum(1 for word in emotion_words_list if word in text_lower)
+            emotion_scores[emotion] = emotion_count
+        
+        key_emotions = [emotion for emotion, score in emotion_scores.items() if score > 0]
+        key_emotions = sorted(key_emotions, key=lambda x: emotion_scores[x], reverse=True)[:3]
+        
+        # Determine primary sentiment
         if positive_score > negative_score:
             sentiment = "positive"
             confidence = positive_score / (positive_score + negative_score + 0.1)
+            emotional_tone = "optimistic"
         elif negative_score > positive_score:
             sentiment = "negative"
             confidence = negative_score / (positive_score + negative_score + 0.1)
+            emotional_tone = "critical"
         else:
             sentiment = "neutral"
             confidence = 0.5
+            emotional_tone = "informative"
+        
+        # Extract sentiment keywords
+        sentiment_keywords = []
+        if sentiment == "positive":
+            sentiment_keywords = [word for word in positive_words if word in text_lower][:5]
+        elif sentiment == "negative":
+            sentiment_keywords = [word for word in negative_words if word in text_lower][:5]
         
         return SentimentAnalysis(
             sentiment=sentiment,
             confidence=min(confidence, 1.0),
             positive_score=positive_score,
             negative_score=negative_score,
-            neutral_score=neutral_score
+            neutral_score=neutral_score,
+            emotional_tone=emotional_tone,
+            key_emotions=key_emotions,
+            sentiment_keywords=sentiment_keywords
         )
     
-    def get_strategy_hashtags(self, content: str, strategies: HashtagStrategies, sentiment: str = None) -> List[HashtagResult]:
-        """Generate hashtags based on selected strategies"""
+    def get_strategy_hashtags(self, content: str, strategies: HashtagStrategies, 
+                            sentiment: str = None, language_preference: str = "both") -> List[HashtagResult]:
+        """Generate hashtags based on selected strategies with language preference"""
         strategy_hashtags = []
         content_lower = content.lower()
         
@@ -243,7 +355,13 @@ class HashtagAnalyzer:
                 
             strategy_info = TN_POLITICS_STRATEGIES.get(strategy_key, {})
             strategy_name = strategy_info.get("name", strategy_key)
-            examples = strategy_info.get("examples", [])
+            
+            # Get examples based on language preference
+            if language_preference in ["tamil", "english", "both"]:
+                examples = strategy_info.get("examples", {}).get(language_preference, [])
+            else:
+                examples = strategy_info.get("examples", {}).get("both", [])
+            
             keywords = strategy_info.get("keywords", [])
             
             # Check if content matches strategy keywords
@@ -255,19 +373,24 @@ class HashtagAnalyzer:
                 hashtag = example.replace('#', '')
                 score = min(relevance_score + rng.integers(10, 30), 100)
                 
+                # Determine hashtag language
+                hashtag_language = self.detect_hashtag_language(hashtag)
+                
                 strategy_hashtags.append(HashtagResult(
                     hashtag=hashtag,
                     score=score,
                     category="tn_politics",
                     reasoning=f"Strategy: {strategy_name} - {strategy_info.get('description', '')}",
                     strategy=strategy_key,
-                    sentiment=sentiment
+                    sentiment=sentiment,
+                    language=hashtag_language
                 ))
         
         return strategy_hashtags
     
-    def get_sentiment_hashtags(self, sentiment: str, content: str) -> List[HashtagResult]:
-        """Generate hashtags based on sentiment"""
+    def get_sentiment_hashtags(self, sentiment: str, content: str, 
+                             language_preference: str = "both") -> List[HashtagResult]:
+        """Generate hashtags based on sentiment with language preference"""
         if sentiment not in SENTIMENT_HASHTAGS:
             return []
         
@@ -275,17 +398,23 @@ class HashtagAnalyzer:
         content_lower = content.lower()
         rng = np.random.default_rng(seed=42)
         
-        for category, hashtags in SENTIMENT_HASHTAGS[sentiment].items():
+        for category, lang_hashtags in SENTIMENT_HASHTAGS[sentiment].items():
+            # Get hashtags based on language preference
+            if language_preference in ["tamil", "english", "both"]:
+                hashtags = lang_hashtags.get(language_preference, [])
+            else:
+                hashtags = lang_hashtags.get("both", [])
+            
             # Check content relevance to category
             category_keywords = {
-                "government": ["government", "policy", "minister", "அரசு", "கொள்கை"],
-                "social": ["people", "society", "community", "மக்கள்", "சமூகம்"],
-                "development": ["development", "progress", "growth", "வளர்ச்சி", "முன்னேற்றம்"],
-                "cultural": ["culture", "tradition", "heritage", "பண்பாடு", "பாரம்பரியம்"],
-                "opposition": ["opposition", "against", "எதிர்ப்பு"],
-                "issues": ["problem", "issue", "concern", "பிரச்சனை"],
-                "criticism": ["criticism", "critique", "விமர்சனம்"],
-                "call_to_action": ["action", "act", "do", "செய்"]
+                "government": ["government", "policy", "minister", "அரசு", "கொள்கை", "அமைச்சர்"],
+                "social": ["people", "society", "community", "மக்கள்", "சமூகம்", "சமுதாயம்"],
+                "development": ["development", "progress", "growth", "வளர்ச்சி", "முன்னேற்றம்", "வளர்ச்சி"],
+                "cultural": ["culture", "tradition", "heritage", "பண்பாடு", "பாரம்பரியம்", "பாரம்பரிய"],
+                "opposition": ["opposition", "against", "எதிர்ப்பு", "எதிராக"],
+                "issues": ["problem", "issue", "concern", "பிரச்சனை", "பிரச்சினை", "கவலை"],
+                "criticism": ["criticism", "critique", "விமர்சனம்", "விமர்சன"],
+                "call_to_action": ["action", "act", "do", "செய்", "நடவடிக்கை", "செயல்"]
             }
             
             keywords = category_keywords.get(category, [])
@@ -296,15 +425,38 @@ class HashtagAnalyzer:
                     tag = hashtag.replace('#', '')
                     score = min(60 + relevance * 10 + rng.integers(5, 25), 95)
                     
+                    # Determine hashtag language
+                    hashtag_language = self.detect_hashtag_language(tag)
+                    
                     sentiment_hashtags.append(HashtagResult(
                         hashtag=tag,
                         score=score,
                         category="sentiment_based",
                         reasoning=f"Sentiment-based ({sentiment}) hashtag for {category} content",
-                        sentiment=sentiment
+                        sentiment=sentiment,
+                        language=hashtag_language
                     ))
         
         return sentiment_hashtags
+    
+    def detect_hashtag_language(self, hashtag: str) -> str:
+        """Detect if hashtag is in Tamil, English, or mixed"""
+        # Simple language detection based on character ranges
+        tamil_chars = set('அஆஇஈஉஊஎஏஐஒஓஔகஙசஞடணதநபமயரலவழளறனஃ்ாிீுூெேைொோௌ்')
+        english_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
+        
+        hashtag_chars = set(hashtag)
+        has_tamil = bool(hashtag_chars & tamil_chars)
+        has_english = bool(hashtag_chars & english_chars)
+        
+        if has_tamil and has_english:
+            return "mixed"
+        elif has_tamil:
+            return "tamil"
+        elif has_english:
+            return "english"
+        else:
+            return "unknown"
     
     def calculate_impact_score(self, row: Dict) -> float:
         """Calculate impact score based on multiple metrics"""
@@ -407,8 +559,9 @@ class HashtagAnalyzer:
     
     def predict_hashtags_local(self, content: str, max_hashtags: int = 15, 
                              strategies: HashtagStrategies = None, 
-                             sentiment: str = None) -> List[HashtagResult]:
-        """Predict hashtags using local ML model with strategies and sentiment"""
+                             sentiment: str = None,
+                             language_preference: str = "both") -> List[HashtagResult]:
+        """Predict hashtags using local ML model with strategies, sentiment, and language preference"""
         if not self.is_trained:
             raise ValueError("Model not trained. Call train_model() first.")
         
@@ -416,12 +569,16 @@ class HashtagAnalyzer:
         
         # Get strategy-based hashtags
         if strategies:
-            strategy_hashtags = self.get_strategy_hashtags(content, strategies, sentiment)
+            strategy_hashtags = self.get_strategy_hashtags(
+                content, strategies, sentiment, language_preference
+            )
             all_hashtags.extend(strategy_hashtags)
         
         # Get sentiment-based hashtags
         if sentiment and sentiment != "neutral":
-            sentiment_hashtags = self.get_sentiment_hashtags(sentiment, content)
+            sentiment_hashtags = self.get_sentiment_hashtags(
+                sentiment, content, language_preference
+            )
             all_hashtags.extend(sentiment_hashtags)
         
         # Get ML-based hashtags
@@ -450,12 +607,25 @@ class HashtagAnalyzer:
                     for existing_tag in content_hashtags
                 ])
             
+            # Language preference filtering
+            hashtag_language = self.detect_hashtag_language(hashtag)
+            language_bonus = 1.0
+            
+            if language_preference == "tamil" and hashtag_language == "tamil":
+                language_bonus = 1.2
+            elif language_preference == "english" and hashtag_language == "english":
+                language_bonus = 1.2
+            elif language_preference == "both":
+                language_bonus = 1.1 if hashtag_language in ["tamil", "english"] else 1.0
+            elif language_preference != "both" and hashtag_language != language_preference:
+                language_bonus = 0.8
+            
             # Combined score
             final_score = (
                 base_score * 0.6 +
                 relevance_score * 100 * 0.3 +
                 cooccurrence_score * 0.1
-            )
+            ) * language_bonus
             
             if final_score > 5:  # Only include if score is reasonable
                 ml_hashtags.append(HashtagResult(
@@ -463,7 +633,8 @@ class HashtagAnalyzer:
                     score=round(final_score, 2),
                     category="ml_predicted",
                     reasoning=f"ML model prediction based on historical performance (score: {final_score:.1f})",
-                    sentiment=sentiment
+                    sentiment=sentiment,
+                    language=hashtag_language
                 ))
         
         # Sort ML hashtags by score
@@ -503,8 +674,10 @@ async def startup_event():
         logger.error(f"❌ Error training model: {str(e)}")
 
 async def predict_with_azure_openai(content: str, config: ApiConfig, max_hashtags: int = 10,
-                                  strategies: HashtagStrategies = None, sentiment: str = None) -> Dict:
-    """Predict hashtags using Azure OpenAI with strategies and sentiment"""
+                                  strategies: HashtagStrategies = None, sentiment: str = None,
+                                  language_preference: str = "both",
+                                  enable_sentiment_analysis: bool = True) -> Dict:
+    """Predict hashtags using Azure OpenAI with enhanced features"""
     try:
         if config.provider == "azure":
             client = AzureOpenAI(
@@ -529,66 +702,32 @@ async def predict_with_azure_openai(content: str, config: ApiConfig, max_hashtag
         if sentiment and sentiment != "neutral":
             sentiment_context = f"\nSentiment focus: Generate {sentiment} hashtags that align with a {sentiment} tone."
         
-#         prompt = f"""
-# You are an expert social media strategist specializing in hashtag optimization for Tamil Nadu government and social campaigns. 
+        language_context = ""
+        if language_preference == "tamil":
+            language_context = "\nLanguage preference: Prioritize Tamil hashtags (தமிழ் hashtags)"
+        elif language_preference == "english":
+            language_context = "\nLanguage preference: Prioritize English hashtags"
+        else:
+            language_context = "\nLanguage preference: Mix of Tamil and English hashtags"
+        
+        enhanced_sentiment_prompt = ""
+        if enable_sentiment_analysis:
+            enhanced_sentiment_prompt = """
+7. Enhanced sentiment analysis including:
+   - Emotional tone detection (optimistic, critical, informative, etc.)
+   - Key emotions present in the content
+   - Sentiment keywords that influenced the analysis
+   - Cultural context for Tamil content"""
 
-# Analyze the following content and provide the most effective hashtags for maximum engagement and reach:
-
-# Content: "{content}"
-# {strategy_context}
-# {sentiment_context}
-
-# Please provide:
-# 1. {max_hashtags} most relevant and high-performing hashtags
-# 2. Brief analysis of content themes
-# 3. Engagement potential score (1-100) for each hashtag
-# 4. Reason for each hashtag recommendation
-# 5. Sentiment analysis of the content
-
-# Focus on:
-# - Tamil Nadu specific hashtags
-# - Government/political campaign hashtags
-# - Industry-specific hashtags
-# - Trending social media hashtags
-# - Mix of popular and niche hashtags
-# - Strategic hashtag placement based on selected strategies
-
-# Respond in JSON format:
-# {{
-#   "sentiment_analysis": {{
-#     "sentiment": "positive/negative/neutral",
-#     "confidence": 0.85,
-#     "positive_score": 0.7,
-#     "negative_score": 0.1,
-#     "neutral_score": 0.2
-#   }},
-#   "analysis": {{
-#     "themes": ["theme1", "theme2"],
-#     "keywords": ["keyword1", "keyword2"],
-#     "content_type": "government/business/social",
-#     "language": "tamil/english/mixed",
-#     "target_audience": "description"
-#   }},
-#   "hashtags": [
-#     {{
-#       "hashtag": "hashtag_without_hash",
-#       "score": 85,
-#       "category": "government/industry/trending/tn_politics/sentiment_based",
-#       "reasoning": "why this hashtag is recommended",
-#       "strategy": "piggybacking/hijacking/etc or null",
-#       "sentiment": "positive/negative/neutral or null"
-#     }}
-#   ]
-# }}
-# """
         prompt = f"""
 You are an expert social media strategist specializing in hashtag optimization for Tamil Nadu government and social campaigns, with a strong focus on Dravidian politics, especially the DMK (Dravida Munnetra Kazhagam) party and its alliances.
 
-Analyze the following content and provide the most effective hashtags for maximum engagement and reach, particularly those that resonate with DMK’s political themes, governance efforts, social justice values, and cultural relevance in Tamil Nadu.
+Analyze the following content and provide the most effective hashtags for maximum engagement and reach, particularly those that resonate with DMK's political themes, governance efforts, social justice values, and cultural relevance in Tamil Nadu.
 
 Content: "{content}"
 {strategy_context}
 {sentiment_context}
+{language_context}
 
 Please provide:
 1. {max_hashtags} most relevant and high-performing hashtags
@@ -597,17 +736,15 @@ Please provide:
 4. Reason for each hashtag recommendation
 5. Sentiment analysis of the content
 6. Most likely political party or alliance the content is associated with (e.g., DMK, AIADMK, BJP, Congress, or Others) based on tone, language, and keywords
-7. Indicate if any hashtags were inspired by:
-   - Meta Ads performance
-   - Trending hashtags on platforms like Twitter, Instagram, Facebook
-   - Strategic placement (e.g., piggybacking, cultural relevance, emotional tone)
+{enhanced_sentiment_prompt}
+8. Language classification for each hashtag (tamil, english, mixed)
 
 Focus on:
 - Tamil Nadu specific hashtags for DMK 
 - Government/political campaign hashtags for DMK
 - DMK-aligned themes and narratives (social welfare, inclusivity, Tamil pride, etc.)
 - Industry-specific and trending social media hashtags for DMK
-- Mix of popular and niche hashtags for DMK
+- Mix of popular and niche hashtags for DMK based on language preference
 - Strategic hashtag placement based on selected strategies
 - Party-aligned tags when content is politically charged or pro-DMK
 - Avoid tags that promote opposition narratives (unless the goal is critical analysis)
@@ -620,6 +757,9 @@ Respond in JSON format:
     "positive_score": 0.7,
     "negative_score": 0.1,
     "neutral_score": 0.2,
+    "emotional_tone": "optimistic/critical/informative/etc",
+    "key_emotions": ["joy", "trust", "anticipation"],
+    "sentiment_keywords": ["keyword1", "keyword2"],
     "associated_party": "DMK/AIADMK/BJP/Congress/Others/None",
     "party_confidence": 0.78
   }},
@@ -638,7 +778,8 @@ Respond in JSON format:
       "reasoning": "why this hashtag is recommended",
       "source": "meta_ads/trending/strategy/party_specific",
       "strategy": "piggybacking/hijacking/etc or null",
-      "sentiment": "positive/negative/neutral or null"
+      "sentiment": "positive/negative/neutral or null",
+      "language": "tamil/english/mixed"
     }}
   ]
 }}
@@ -649,7 +790,7 @@ Respond in JSON format:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert social media strategist and hashtag optimization specialist with deep knowledge of Tamil Nadu politics, culture, and social media trends."
+                    "content": "You are an expert social media strategist and hashtag optimization specialist with deep knowledge of Tamil Nadu politics, culture, and social media trends. You understand both Tamil and English languages and can provide culturally appropriate hashtag recommendations."
                 },
                 {
                     "role": "user",
@@ -657,7 +798,7 @@ Respond in JSON format:
                 }
             ],
             temperature=0.7,
-            max_tokens=2500
+            max_tokens=3000
         )
         
         ai_response = response.choices[0].message.content
@@ -694,7 +835,8 @@ Respond in JSON format:
                         "category": "extracted",
                         "reasoning": "Extracted from AI response",
                         "strategy": None,
-                        "sentiment": sentiment
+                        "sentiment": sentiment,
+                        "language": "unknown"
                     })
             else:
                 logger.warning("AI response is empty or not a string.")
@@ -705,7 +847,10 @@ Respond in JSON format:
                     "confidence": 0.5,
                     "positive_score": 0.33,
                     "negative_score": 0.33,
-                    "neutral_score": 0.34
+                    "neutral_score": 0.34,
+                    "emotional_tone": "informative",
+                    "key_emotions": [],
+                    "sentiment_keywords": []
                 },
                 "analysis": {
                     "themes": ["general"],
@@ -725,16 +870,21 @@ Respond in JSON format:
 async def predict_hashtags(request: PredictHashtagFullRequest):
     try:
         # Analyze sentiment
-        sentiment_analysis = analyzer.analyze_sentiment(request.content)
+        if request.enable_sentiment_analysis:
+            sentiment_analysis = analyzer.enhanced_sentiment_analysis(request.content)
+        else:
+            sentiment_analysis = analyzer.enhanced_sentiment_analysis(request.content)  # Basic analysis
+        
         final_sentiment = request.sentiment or sentiment_analysis.sentiment
-        request.max_hashtags = min(request.max_hashtags, 15)  # Limit to max 15 hashtags
+        request.max_hashtags = min(request.max_hashtags, 20)  # Limit to max 20 hashtags
 
         if request.config and request.config.api_key:
             # Use AI API
             logger.info("Using AI API for prediction")
             ai_result = await predict_with_azure_openai(
                 request.content, request.config, request.max_hashtags, 
-                request.strategies, final_sentiment
+                request.strategies, final_sentiment, request.language_preference,
+                request.enable_sentiment_analysis
             )
             
             hashtags = [
@@ -743,15 +893,16 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
                     score=h["score"],
                     category=h["category"],
                     reasoning=h["reasoning"],
-                    strategy=h["strategy"],
-                    sentiment=h.get("sentiment")
+                    strategy=h.get("strategy"),
+                    sentiment=h.get("sentiment"),
+                    language=h.get("language", "unknown")
                 )
                 for h in ai_result["hashtags"]
             ]
             
             # Use AI sentiment analysis if available
             ai_sentiment = ai_result.get("sentiment_analysis")
-            if ai_sentiment:
+            if ai_sentiment and request.enable_sentiment_analysis:
                 sentiment_analysis = SentimentAnalysis(**ai_sentiment)
             
             return PredictionResponse(
@@ -766,7 +917,7 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
             logger.info("Using local ML model for prediction")
             hashtags = analyzer.predict_hashtags_local(
                 request.content, request.max_hashtags, 
-                request.strategies, final_sentiment
+                request.strategies, final_sentiment, request.language_preference
             )
             
             analysis = {
@@ -780,7 +931,7 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
             return PredictionResponse(
                 hashtags=hashtags,
                 analysis=analysis,
-                sentiment_analysis=sentiment_analysis,
+                sentiment_analysis=sentiment_analysis if request.enable_sentiment_analysis else None,
                 source="LOCAL_ML",
                 timestamp=datetime.now().isoformat()
             )
@@ -797,6 +948,7 @@ async def health_check():
         "hashtag_count": len(analyzer.hashtag_impact_scores),
         "timestamp": datetime.now().isoformat()
     }
+
 @app.get("/top-hashtags")
 async def get_top_hashtags(limit: int = 20):
     """Get top performing hashtags from historical data"""
@@ -819,6 +971,7 @@ async def get_top_hashtags(limit: int = 20):
         ],
         "total_count": len(analyzer.hashtag_impact_scores)
     }
+
 class TopTrendingRequest(BaseModel):
     platform: str = "all"
     count: int = 10
@@ -865,7 +1018,7 @@ async def get_top_trending_hashtags(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a social media analytics expert."
+                    "content": "You are a social media analytics expert with deep knowledge of Tamil Nadu politics and trending hashtags."
                 },
                 {
                     "role": "user",
