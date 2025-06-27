@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, ThumbsUp, ThumbsDown, Languages, Smile, Frown, Meh } from 'lucide-react';
+import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, Languages, Smile, Frown, Meh, Database, Star, Clock, Lightbulb } from 'lucide-react';
 
-type Prediction = {
+interface Prediction {
   hashtag: string;
   score: number;
   category: string;
@@ -9,18 +9,33 @@ type Prediction = {
   strategy?: string;
   sentiment?: string;
   language?: string;
-};
+  source: string;
+  frequency_in_rag?: number;
+  similar_content_examples?: string[];
+}
 
-type Analysis = {
+interface RAGAnalysis {
+  total_rag_hashtags: number;
+  existing_hashtags_found: number;
+  new_hashtags_suggested: number;
+  rag_enhanced_hashtags: number;
+  top_rag_hashtags: Array<{
+    hashtag: string;
+    frequency: number;
+    category: string;
+  }>;
+}
+
+interface Analysis {
   themes?: string[];
   keywords?: string[];
   content_type?: string;
   language?: string;
   target_audience?: string;
   sentiment?: string;
-};
+}
 
-type SentimentAnalysis = {
+interface SentimentAnalysis {
   sentiment: string;
   confidence: number;
   positive_score: number;
@@ -31,47 +46,50 @@ type SentimentAnalysis = {
   sentiment_keywords?: string[];
   associated_party?: string;
   party_confidence?: number;
-};
+}
 
-type ApiConfig = {
+interface ApiConfig {
   provider: string;
   apiKey: string;
   endpoint: string;
   model: string;
-};
+}
 
-type HashtagStrategy = {
+interface HashtagStrategy {
   id: string;
   name: string;
   description: string;
   icon: React.ReactNode;
-};
+}
 
-const HashtagPredictor = () => {
-  const [content, setContent] = useState('');
+const HashtagPredictor: React.FC = () => {
+  const [content, setContent] = useState<string>('');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [copiedHashtag, setCopiedHashtag] = useState('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [copiedHashtag, setCopiedHashtag] = useState<string>('');
   const [analysisDetails, setAnalysisDetails] = useState<Analysis | null>(null);
   const [sentimentAnalysis, setSentimentAnalysis] = useState<SentimentAnalysis | null>(null);
+  const [ragAnalysis, setRagAnalysis] = useState<RAGAnalysis | null>(null);
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     provider: 'azure',
     apiKey: '',
     endpoint: '',
     model: 'gpt-3.5-turbo'
   });
-  const [showSettings, setShowSettings] = useState(false);
-  const [error, setError] = useState('');
-  const [apiStatus, setApiStatus] = useState('disconnected');
-  const [topHashtags, setTopHashtags] = useState<{hashtag: string, score: number}[]>([]);
-  const [predictionSource, setPredictionSource] = useState('');
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [apiStatus, setApiStatus] = useState<string>('disconnected');
+  const [topHashtags, setTopHashtags] = useState<Array<{hashtag: string, score: number, source?: string, category?: string}>>([]);
+  const [predictionSource, setPredictionSource] = useState<string>('');
   
   // Enhanced state for new features
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>([]);
   const [sentimentFilter, setSentimentFilter] = useState<string>('all');
-  const [enableSentimentAnalysis, setEnableSentimentAnalysis] = useState(true);
+  const [enableSentimentAnalysis, setEnableSentimentAnalysis] = useState<boolean>(true);
   const [languagePreference, setLanguagePreference] = useState<string>('both');
-  const [copiedTopHashtag, setCopiedTopHashtag] = useState('');
+  const [copiedTopHashtag, setCopiedTopHashtag] = useState<string>('');
+  const [ragStats, setRagStats] = useState<any>(null);
+  const [hashtagSourceFilter, setHashtagSourceFilter] = useState<string>('all');
 
   const API_BASE_URL = 'http://localhost:8000';
 
@@ -127,7 +145,7 @@ const HashtagPredictor = () => {
     }
   ];
 
-  const sampleContents = [
+  const sampleContents: string[] = [
     "Tamil Nadu government announces new employment scheme for youth development and skill training programs.",
     "Healthcare infrastructure development in Tamil Nadu with new hospitals and medical facilities for rural areas.",
     "Women empowerment initiatives and safety measures implemented across Tamil Nadu for gender equality.",
@@ -140,9 +158,10 @@ const HashtagPredictor = () => {
     checkApiHealth();
     loadTopHashtags();
     loadSavedConfig();
+    loadRagStats();
   }, []);
 
-  const loadSavedConfig = () => {
+  const loadSavedConfig = (): void => {
     try {
       const saved = localStorage.getItem('hashtagPredictor_apiConfig');
       if (saved) {
@@ -153,7 +172,7 @@ const HashtagPredictor = () => {
     }
   };
 
-  const checkApiHealth = async () => {
+  const checkApiHealth = async (): Promise<void> => {
     try {
       const response = await fetch(`${API_BASE_URL}/health`);
       if (response.ok) {
@@ -168,19 +187,31 @@ const HashtagPredictor = () => {
     }
   };
 
-  const loadTopHashtags = async () => {
+  const loadTopHashtags = async (): Promise<void> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/top-hashtags?limit=10`);
+      const response = await fetch(`${API_BASE_URL}/top-hashtags?limit=10&source=${hashtagSourceFilter}`);
       if (response.ok) {
         const data = await response.json();
-        setTopHashtags(data.top_hashtags || []);
+        setTopHashtags(data.top_hashtags ?? []);
       }
     } catch (error) {
       console.error('Failed to load top hashtags:', error);
     }
   };
 
-  const handleStrategyChange = (strategyId: string) => {
+  const loadRagStats = async (): Promise<void> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/rag-stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setRagStats(data);
+      }
+    } catch (error) {
+      console.error('Failed to load RAG stats:', error);
+    }
+  };
+
+  const handleStrategyChange = (strategyId: string): void => {
     setSelectedStrategies(prev => 
       prev.includes(strategyId) 
         ? prev.filter(id => id !== strategyId)
@@ -188,7 +219,7 @@ const HashtagPredictor = () => {
     );
   };
 
-  const handlePredict = async () => {
+  const handlePredict = async (): Promise<void> => {
     if (!content.trim()) return;
 
     setLoading(true);
@@ -196,6 +227,7 @@ const HashtagPredictor = () => {
     setPredictions([]);
     setAnalysisDetails(null);
     setSentimentAnalysis(null);
+    setRagAnalysis(null);
 
     try {
       const allStrategyKeys = [
@@ -245,14 +277,15 @@ const HashtagPredictor = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
+        throw new Error(errorData.detail ?? `HTTP ${response.status}`);
       }
 
       const result = await response.json();
-      setPredictions(result.hashtags || []);
-      setAnalysisDetails(result.analysis || {});
-      setSentimentAnalysis(result.sentiment_analysis || null);
-      setPredictionSource(result.source || 'Unknown');
+      setPredictions(result.hashtags ?? []);
+      setAnalysisDetails(result.analysis ?? {});
+      setSentimentAnalysis(result.sentiment_analysis ?? null);
+      setRagAnalysis(result.rag_analysis ?? null);
+      setPredictionSource(result.source ?? 'Unknown');
 
     } catch (err: any) {
       setError(err.message);
@@ -262,26 +295,26 @@ const HashtagPredictor = () => {
     }
   };
 
-  const copyHashtag = (hashtag: string) => {
+  const copyHashtag = (hashtag: string): void => {
     navigator.clipboard.writeText(`#${hashtag}`);
     setCopiedHashtag(hashtag);
     setTimeout(() => setCopiedHashtag(''), 2000);
   };
 
-  const copyAllHashtags = () => {
+  const copyAllHashtags = (): void => {
     const allHashtags = predictions.slice(0, 10).map(p => `#${p.hashtag}`).join(' ');
     navigator.clipboard.writeText(allHashtags);
     setCopiedHashtag('all');
     setTimeout(() => setCopiedHashtag(''), 2000);
   };
 
-  const saveApiConfig = () => {
+  const saveApiConfig = (): void => {
     localStorage.setItem('hashtagPredictor_apiConfig', JSON.stringify(apiConfig));
     setShowSettings(false);
     checkApiHealth();
   };
 
-  const getStatusIcon = () => {
+  const getStatusIcon = (): React.ReactNode => {
     switch (apiStatus) {
       case 'connected':
         return <Wifi className="w-3 h-3 text-green-500" />;
@@ -294,12 +327,12 @@ const HashtagPredictor = () => {
     }
   };
 
-  const getStatusText = () => {
+  const getStatusText = (): string => {
     switch (apiStatus) {
       case 'connected':
-        return apiConfig.apiKey ? `Connected to ${apiConfig.provider.toUpperCase()} AI` : 'ML Model Ready';
+        return apiConfig.apiKey ? `Connected to ${apiConfig.provider.toUpperCase()} AI + RAG` : 'ML Model + RAG Ready';
       case 'partial':
-        return 'ML Model Ready (AI Optional)';
+        return 'ML Model + RAG Ready (AI Optional)';
       case 'error':
         return 'API Error - Using Fallback';
       default:
@@ -307,17 +340,16 @@ const HashtagPredictor = () => {
     }
   };
 
-  const getCategoryColor = (category: string) => {
-    const colors: {[key: string]: string} = {
+  const getCategoryColor = (category: string): string => {
+    const colors: Record<string, string> = {
       'government': 'bg-blue-100 text-blue-700',
       'industry': 'bg-green-100 text-green-700',
       'trending': 'bg-purple-100 text-purple-700',
-      'location': 'bg-orange-100 text-orange-700',
-      'theme': 'bg-pink-100 text-pink-700',
-      'demographic': 'bg-indigo-100 text-indigo-700',
-      'ml_predicted': 'bg-teal-100 text-teal-700',
-      'extracted': 'bg-gray-100 text-gray-700',
-      'strategy': 'bg-red-100 text-red-700',
+      'rag_existing': 'bg-emerald-100 text-emerald-700',
+      'rag_similar': 'bg-teal-100 text-teal-700',
+      'rag_frequent': 'bg-cyan-100 text-cyan-700',
+      'rag_enhanced': 'bg-indigo-100 text-indigo-700',
+      'ml_predicted': 'bg-orange-100 text-orange-700',
       'tn_politics': 'bg-amber-100 text-amber-700',
       'sentiment_based': 'bg-rose-100 text-rose-700',
       'default': 'bg-gray-100 text-gray-700'
@@ -325,7 +357,33 @@ const HashtagPredictor = () => {
     return colors[category] || colors.default;
   };
 
-  const getSentimentIcon = (sentiment: string) => {
+  const getSourceIcon = (source: string): React.ReactNode => {
+    switch (source) {
+      case 'existing':
+        return <Database className="w-4 h-4 text-emerald-600" />;
+      case 'rag_enhanced':
+        return <Star className="w-4 h-4 text-indigo-600" />;
+      case 'new':
+        return <Lightbulb className="w-4 h-4 text-orange-600" />;
+      default:
+        return <Hash className="w-4 h-4 text-gray-600" />;
+    }
+  };
+
+  const getSourceColor = (source: string): string => {
+    switch (source) {
+      case 'existing':
+        return 'bg-emerald-100 text-emerald-700';
+      case 'rag_enhanced':
+        return 'bg-indigo-100 text-indigo-700';
+      case 'new':
+        return 'bg-orange-100 text-orange-700';
+      default:
+        return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const getSentimentIcon = (sentiment: string): React.ReactNode => {
     switch (sentiment) {
       case 'positive':
         return <Smile className="w-4 h-4 text-green-600" />;
@@ -336,7 +394,7 @@ const HashtagPredictor = () => {
     }
   };
 
-  const getSentimentColor = (sentiment: string) => {
+  const getSentimentColor = (sentiment: string): string => {
     switch (sentiment) {
       case 'positive':
         return 'bg-green-100 text-green-700';
@@ -347,7 +405,7 @@ const HashtagPredictor = () => {
     }
   };
 
-  const getLanguageIcon = (language: string) => {
+  const getLanguageIcon = (language: string): React.ReactNode => {
     switch (language) {
       case 'tamil':
         return <span className="text-xs font-bold text-orange-600">TM</span>;
@@ -360,7 +418,7 @@ const HashtagPredictor = () => {
     }
   };
 
-  const getLanguageColor = (language: string) => {
+  const getLanguageColor = (language: string): string => {
     switch (language) {
       case 'tamil':
         return 'bg-orange-100 text-orange-700';
@@ -383,7 +441,7 @@ const HashtagPredictor = () => {
               <Brain className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              AI Hashtag Predictor
+              AI Hashtag Predictor with RAG
             </h1>
             <button
               onClick={() => setShowSettings(!showSettings)}
@@ -393,13 +451,21 @@ const HashtagPredictor = () => {
             </button>
           </div>
           <p className="text-gray-600 text-lg max-w-3xl mx-auto">
-            Advanced AI-powered hashtag prediction with enhanced sentiment analysis and language-specific recommendations for Tamil Nadu politics
+            Advanced AI-powered hashtag prediction with RAG database of proven high-performing hashtags from historical campaigns
           </p>
-          <div className="flex items-center justify-center gap-2 mt-3">
-            {getStatusIcon()}
-            <span className="text-sm text-gray-600">
-              {getStatusText()}
-            </span>
+          <div className="flex items-center justify-center gap-4 mt-3">
+            <div className="flex items-center gap-2">
+              {getStatusIcon()}
+              <span className="text-sm text-gray-600">{getStatusText()}</span>
+            </div>
+            {ragStats && (
+              <div className="flex items-center gap-2">
+                <Database className="w-3 h-3 text-emerald-500" />
+                <span className="text-sm text-gray-600">
+                  RAG: {ragStats.total_rag_hashtags} proven hashtags
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -466,7 +532,7 @@ const HashtagPredictor = () => {
                   <div className="flex items-start gap-2">
                     <Sparkles className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                     <div>
-                      <strong>Pro Tip:</strong> Leave API key empty to use our local ML model trained on Meta Ads data. Add your API key for enhanced AI predictions with sentiment analysis.
+                      <strong>Enhanced with RAG:</strong> Our system now uses a database of proven high-performing hashtags from historical campaigns to provide better recommendations.
                     </div>
                   </div>
                 </div>
@@ -513,7 +579,7 @@ const HashtagPredictor = () => {
                   <div className="text-xs text-gray-500 mt-1 flex justify-between">
                     <span>{content.length} characters</span>
                     <span className="text-blue-600">
-                      {content.length > 0 ? '✓ Ready for analysis' : 'Enter content to start'}
+                      {content.length > 0 ? '✓ Ready for RAG analysis' : 'Enter content to start'}
                     </span>
                   </div>
                 </div>
@@ -582,7 +648,7 @@ const HashtagPredictor = () => {
                     ) : (
                       <Brain className="w-5 h-5" />
                     )}
-                    {loading ? 'AI Analyzing...' : 'Predict Hashtags'}
+                    {loading ? 'AI + RAG Analyzing...' : 'Predict with RAG'}
                   </button>
                   
                   {predictions.length > 0 && (
@@ -733,160 +799,45 @@ const HashtagPredictor = () => {
               </div>
             </div>
 
-            {/* Enhanced Sentiment Analysis Results */}
-            {sentimentAnalysis && (
+            {/* RAG Analysis Results */}
+            {ragAnalysis && (
               <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <Heart className="w-5 h-5 text-pink-600" />
-                  <h3 className="text-xl font-semibold text-gray-800">Sentiment Analysis Results</h3>
+                  <Database className="w-5 h-5 text-emerald-600" />
+                  <h3 className="text-xl font-semibold text-gray-800">RAG Database Analysis</h3>
                 </div>
                 
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                      {getSentimentIcon(sentimentAnalysis.sentiment)}
-                      Overall Sentiment
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Primary:</span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${getSentimentColor(sentimentAnalysis.sentiment)}`}>
-                          {sentimentAnalysis.sentiment} ({(sentimentAnalysis.confidence * 100).toFixed(1)}%)
-                        </span>
-                      </div>
-                      {sentimentAnalysis.emotional_tone && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Tone:</span>
-                          <span className="text-sm font-medium text-gray-800 capitalize">{sentimentAnalysis.emotional_tone}</span>
-                        </div>
-                      )}
-                      {sentimentAnalysis.associated_party && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Political Alignment:</span>
-                          <span className="text-sm font-medium text-blue-800">{sentimentAnalysis.associated_party}</span>
-                        </div>
-                      )}
-                    </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="text-center p-3 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg border border-emerald-200">
+                    <div className="text-sm text-gray-600">Existing</div>
+                    <div className="font-semibold text-emerald-800">{ragAnalysis.existing_hashtags_found}</div>
                   </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3">Sentiment Breakdown</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-green-600">Positive:</span>
-                        <span className="text-sm font-medium">{(sentimentAnalysis.positive_score * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-red-600">Negative:</span>
-                        <span className="text-sm font-medium">{(sentimentAnalysis.negative_score * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Neutral:</span>
-                        <span className="text-sm font-medium">{(sentimentAnalysis.neutral_score * 100).toFixed(1)}%</span>
-                      </div>
-                    </div>
+                  <div className="text-center p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200">
+                    <div className="text-sm text-gray-600">Enhanced</div>
+                    <div className="font-semibold text-indigo-800">{ragAnalysis.rag_enhanced_hashtags}</div>
                   </div>
-                </div>
-
-                {(sentimentAnalysis.key_emotions && sentimentAnalysis.key_emotions.length > 0) && (
-                  <div className="mt-4">
-                    <h4 className="font-medium text-gray-700 mb-2">Key Emotions Detected</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {sentimentAnalysis.key_emotions.map((emotion, index) => (
-                        <span 
-                          key={index}
-                          className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm capitalize font-medium"
-                        >
-                          {emotion}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {(sentimentAnalysis.sentiment_keywords && sentimentAnalysis.sentiment_keywords.length > 0) && (
-                  <div className="mt-4">
-                    <h4 className="font-medium text-gray-700 mb-2">Sentiment Keywords</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {sentimentAnalysis.sentiment_keywords.map((keyword, index) => (
-                        <span 
-                          key={index}
-                          className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-md text-sm font-medium"
-                        >
-                          {keyword}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Enhanced Analysis Details */}
-            {analysisDetails && (
-              <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mt-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="w-5 h-5 text-green-600" />
-                  <h3 className="text-xl font-semibold text-gray-800">AI Content Analysis</h3>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    predictionSource.includes('AI') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {predictionSource}
-                  </span>
-                </div>
-                
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                      <Hash className="w-4 h-4" />
-                      Detected Themes
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {analysisDetails.themes?.map((theme, index) => (
-                        <span 
-                          key={index}
-                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm capitalize font-medium"
-                        >
-                          {theme}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                      <Target className="w-4 h-4" />
-                      Key Terms
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {analysisDetails.keywords?.slice(0, 8).map((keyword, index) => (
-                        <span 
-                          key={index}
-                          className="px-2 py-1 bg-green-100 text-green-700 rounded-md text-sm font-medium"
-                        >
-                          {keyword}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg border border-gray-200">
-                    <div className="text-sm text-gray-600">Content Type</div>
-                    <div className="font-semibold capitalize text-gray-800">{analysisDetails.content_type}</div>
-                  </div>
-                  <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
-                    <div className="text-sm text-gray-600">Language</div>
-                    <div className="font-semibold capitalize text-blue-800">{analysisDetails.language}</div>
-                  </div>
-                  <div className="text-center p-3 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-                    <div className="text-sm text-gray-600">Target Audience</div>
-                    <div className="font-semibold text-xs text-green-800">{analysisDetails.target_audience}</div>
+                  <div className="text-center p-3 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
+                    <div className="text-sm text-gray-600">New</div>
+                    <div className="font-semibold text-orange-800">{ragAnalysis.new_hashtags_suggested}</div>
                   </div>
                   <div className="text-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200">
-                    <div className="text-sm text-gray-600">Predictions</div>
-                    <div className="font-semibold text-purple-800">{predictions.length}</div>
+                    <div className="text-sm text-gray-600">Total RAG</div>
+                    <div className="font-semibold text-purple-800">{ragAnalysis.total_rag_hashtags}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-2">Top RAG Hashtags</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {ragAnalysis.top_rag_hashtags.slice(0, 8).map((tag, index) => (
+                      <span 
+                        key={index}
+                        className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-xs font-medium flex items-center gap-1"
+                        title={`Used ${tag.frequency} times`}
+                      >
+                        #{tag.hashtag} ({tag.frequency})
+                      </span>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -895,17 +846,25 @@ const HashtagPredictor = () => {
 
           {/* Right Column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Predictions Section */}
+            {/* Enhanced Predictions Section */}
             <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Globe className="w-5 h-5 text-green-600" />
-                  <h2 className="text-xl font-semibold text-gray-800">AI Predictions</h2>
+                  <h2 className="text-xl font-semibold text-gray-800">AI + RAG Predictions</h2>
                 </div>
                 {predictions.length > 0 && (
-                  <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-                    {predictions.length} hashtags
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                      {predictions.length} hashtags
+                    </span>
+                    {predictionSource.includes('RAG') && (
+                      <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium flex items-center gap-1">
+                        <Database className="w-3 h-3" />
+                        RAG Enhanced
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -913,8 +872,8 @@ const HashtagPredictor = () => {
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
                     <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-gray-600 font-medium">AI is analyzing content...</p>
-                    <p className="text-gray-500 text-sm mt-1">Please wait while we generate predictions</p>
+                    <p className="text-gray-600 font-medium">AI + RAG analyzing content...</p>
+                    <p className="text-gray-500 text-sm mt-1">Matching against proven hashtag database</p>
                   </div>
                 </div>
               )}
@@ -929,9 +888,9 @@ const HashtagPredictor = () => {
 
               {!loading && predictions.length === 0 && !content && (
                 <div className="text-center py-12 text-gray-500">
-                  <Hash className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="font-medium">Enter content to get AI hashtag predictions</p>
-                  <p className="text-sm mt-1">Our AI will analyze and suggest the best hashtags</p>
+                  <Database className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">Enter content to get RAG-enhanced predictions</p>
+                  <p className="text-sm mt-1">Our system will match against proven high-performing hashtags</p>
                 </div>
               )}
 
@@ -947,12 +906,33 @@ const HashtagPredictor = () => {
                           <span className="w-7 h-7 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
                             {index + 1}
                           </span>
-                          <span className="font-bold text-gray-800 text-lg">#{prediction.hashtag}</span>
+                          <span className="font-bold text-gray-800 text-lg">{prediction.hashtag}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
                             {prediction.score}
                           </span>
+                          
+                          {/* Source indicator */}
+                          <span
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getSourceColor(prediction.source)}`}
+                            title={`Source: ${prediction.source}`}
+                          >
+                            {getSourceIcon(prediction.source)}
+                            {prediction.source}
+                          </span>
+
+                          {/* RAG frequency indicator */}
+                          {prediction.frequency_in_rag && (
+                            <span
+                              className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700"
+                              title={`Used ${prediction.frequency_in_rag} times in historical data`}
+                            >
+                              <Clock className="w-3 h-3" />
+                              {prediction.frequency_in_rag}x
+                            </span>
+                          )}
+                          
                           {/* Show sentiment if available */}
                           {prediction.sentiment && (
                             <span
@@ -963,6 +943,7 @@ const HashtagPredictor = () => {
                               {prediction.sentiment}
                             </span>
                           )}
+                          
                           {/* Show language if available */}
                           {prediction.language && (
                             <span
@@ -972,6 +953,7 @@ const HashtagPredictor = () => {
                               {getLanguageIcon(prediction.language)}
                             </span>
                           )}
+                          
                           <button
                             onClick={() => copyHashtag(prediction.hashtag)}
                             className="p-2 hover:bg-blue-100 rounded-lg transition-colors duration-200"
@@ -989,6 +971,20 @@ const HashtagPredictor = () => {
                       <div className="text-sm text-gray-600 mb-3 leading-relaxed">
                         {prediction.reasoning}
                       </div>
+
+                      {/* Show similar content examples for RAG hashtags */}
+                      {prediction.similar_content_examples && prediction.similar_content_examples.length > 0 && (
+                        <div className="mb-3">
+                          <div className="text-xs text-gray-500 mb-1 font-medium">Similar historical content:</div>
+                          <div className="space-y-1">
+                            {prediction.similar_content_examples.slice(0, 2).map((example, idx) => (
+                              <div key={idx} className="text-xs text-gray-600 bg-gray-50 p-2 rounded italic">
+                                "{example}"
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       
                       <div className="flex items-center justify-between">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getCategoryColor(prediction.category)}`}>
@@ -1012,46 +1008,115 @@ const HashtagPredictor = () => {
               )}
             </div>
 
-            {/* Top Hashtags Section */}
-            {topHashtags.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
-                <div className="flex items-center gap-2 mb-4">
+            {/* Enhanced Top Hashtags Section with Source Filter */}
+            <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-purple-600" />
                   <h3 className="text-xl font-semibold text-gray-800">Top Performing Hashtags</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={hashtagSourceFilter}
+                    onChange={(e) => {
+                      setHashtagSourceFilter(e.target.value);
+                      loadTopHashtags();
+                    }}
+                    className="text-sm p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="all">All Sources</option>
+                    <option value="rag">RAG Database</option>
+                    <option value="ml">ML Model</option>
+                  </select>
                   <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                    From Meta Ads Data
+                    {hashtagSourceFilter === 'rag' ? 'Historical Data' : hashtagSourceFilter === 'ml' ? 'ML Predictions' : 'Combined'}
                   </span>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-2">
+              </div>
+              
+              {topHashtags.length > 0 && (
+                <div className="grid grid-cols-1 gap-2">
                   {topHashtags.slice(0, 10).map((hashtag, index) => (
                     <div 
                       key={hashtag.hashtag}
-                      className="flex items-center justify-between p-2 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100 hover:shadow-md transition-all duration-200"
+                      className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100 hover:shadow-md transition-all duration-200"
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 bg-purple-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 h-6 bg-purple-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
                           {index + 1}
                         </span>
-                        <span className="font-medium text-gray-800 text-sm">#{hashtag.hashtag}</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(`#${hashtag.hashtag}`);
-                          setCopiedTopHashtag(hashtag.hashtag);
-                          setTimeout(() => setCopiedTopHashtag(''), 2000);
-                        }}
-                        className="p-1 hover:bg-purple-100 rounded transition-colors duration-200"
-                        title="Copy hashtag"
-                      >
-                        {copiedTopHashtag === hashtag.hashtag ? (
-                          <Check className="w-3 h-3 text-green-600" />
-                        ) : (
-                          <Copy className="w-3 h-3 text-gray-500" />
+                        <span className="font-medium text-gray-800">#{hashtag.hashtag}</span>
+                        {hashtag.source && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSourceColor(hashtag.source)}`}>
+                            {hashtag.source === 'rag' ? 'Historical' : hashtag.source === 'ml' ? 'ML' : hashtag.source}
+                          </span>
                         )}
-                      </button>
+                        {hashtag.category && (
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
+                            {hashtag.category}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600 font-medium">
+                          {hashtag.score.toFixed(0)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`#${hashtag.hashtag}`);
+                            setCopiedTopHashtag(hashtag.hashtag);
+                            setTimeout(() => setCopiedTopHashtag(''), 2000);
+                          }}
+                          className="p-1 hover:bg-purple-100 rounded transition-colors duration-200"
+                          title="Copy hashtag"
+                        >
+                          {copiedTopHashtag === hashtag.hashtag ? (
+                            <Check className="w-3 h-3 text-green-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-gray-500" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* RAG Database Stats */}
+            {ragStats && (
+              <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <Database className="w-5 h-5 text-emerald-600" />
+                  <h3 className="text-xl font-semibold text-gray-800">RAG Database Stats</h3>
+                  <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                    Live Database
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="text-center p-3 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg border border-emerald-200">
+                    <div className="text-sm text-gray-600">Total Hashtags</div>
+                    <div className="font-semibold text-emerald-800">{ragStats.total_rag_hashtags}</div>
+                  </div>
+                  <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
+                    <div className="text-sm text-gray-600">Content Examples</div>
+                    <div className="font-semibold text-blue-800">{ragStats.total_contexts}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-2">Categories Distribution</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {ragStats.categories && Object.entries(ragStats.categories).map(([category, count]) => (
+                      <span 
+                        key={category}
+                        className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-medium"
+                      >
+                        {category}: {count as number}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1066,21 +1131,21 @@ const HashtagPredictor = () => {
 };
 
 // TopTrendingHashtags component
-type TopTrendingHashtagsProps = {
+interface TopTrendingHashtagsProps {
   apiConfig: ApiConfig;
-};
+}
 
 const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) => {
   const [platform, setPlatform] = useState<string>('all');
   const [hashtags, setHashtags] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
   const [copiedHashtag, setCopiedHashtag] = useState<string>('');
 
   const API_BASE_URL = 'http://localhost:8000';
   const { apiKey, provider, endpoint, model } = apiConfig;
 
-  const fetchTrending = async (selectedPlatform: string) => {
+  const fetchTrending = async (selectedPlatform: string): Promise<void> => {
     setLoading(true);
     setError('');
     setHashtags([]);
@@ -1106,7 +1171,7 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
     }
   };
 
-  const copyHashtag = (hashtag: string) => {
+  const copyHashtag = (hashtag: string): void => {
     navigator.clipboard.writeText(`#${hashtag}`);
     setCopiedHashtag(hashtag);
     setTimeout(() => setCopiedHashtag(''), 2000);

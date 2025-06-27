@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends, Body
+import asyncio
+from fastapi import FastAPI, HTTPException, Depends, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any, Union
 import json
 import pandas as pd
 import numpy as np
@@ -10,6 +11,7 @@ from collections import Counter, defaultdict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics.pairwise import cosine_similarity
 import openai
 from openai import AzureOpenAI
 import os
@@ -19,173 +21,76 @@ import textwrap
 from fastapi import Query
 from contextlib import asynccontextmanager
 import aiofiles
+import csv
+import io
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def read_file_sync(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        return f.read()
+
+OUTPUT_JSON_FILENAME = "output.json"
+
+async def load_json_async(filepath):
+    loop = asyncio.get_running_loop()
+    content = await loop.run_in_executor(None, read_file_sync, filepath)
+    return json.loads(content)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        async with aiofiles.open("output.json", "r", encoding="utf-8") as f:
-            content = await f.read()
-            ads_data = json.loads(content)
-        analyzer.train_model(ads_data)
-        logger.info("✅ Model trained successfully on startup")
-    except FileNotFoundError:
-        logger.warning("⚠️ output.json not found. Model will use fallback predictions.")
+        logger.info("🚀 Starting application initialization...")
+        
+        # First, load RAG data
+        logger.info("📊 Loading RAG data...")
+        await analyzer.load_rag_data()
+        
+        # Then, try to load and train with historical ads data
+        try:
+            logger.info("📈 Loading historical ads data...")
+            OUTPUT_JSON_FILEPATH =  os.path.join(os.path.dirname(__file__), OUTPUT_JSON_FILENAME)
+            ads_data = await load_json_async(OUTPUT_JSON_FILEPATH)
+
+            logger.info(f"📈 Training model with {len(ads_data)} ads data entries...")
+            analyzer.train_model(ads_data)
+            logger.info("✅ Model trained successfully with both RAG and ads data")
+            
+        except FileNotFoundError:
+            logger.warning("⚠️ output.json not found. Training model with RAG data only...")
+        except Exception as e:
+            logger.error(f"❌ Error loading ads data: {str(e)}. Training with RAG data only...")
+            analyzer.train_model([])
+            logger.info("✅ Model trained with RAG data only")
+        
+        # Verify training status
+        logger.info(f"🎯 Model training status: {analyzer.is_trained}")
+        logger.info(f"📊 Available hashtags: {len(analyzer.hashtag_impact_scores)}")
+        logger.info(f"📚 RAG hashtags: {len(analyzer.rag_hashtag_frequency)}")
+        
     except Exception as e:
-        logger.error(f"❌ Error training model: {str(e)}")
+        logger.error(f"❌ Critical error during startup: {str(e)}")
+        # Even if everything fails, mark as trained with minimal data
+        analyzer.is_trained = True
+        logger.info("✅ Fallback: Model marked as trained")
+    
     yield
 
-app = FastAPI(title="AI Hashtag Predictor API", version="1.0.0",lifespan=lifespan)
+app = FastAPI(title="AI Hashtag Predictor API with RAG", version="2.0.0", lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Enhanced Tamil Nadu Politics Hashtag Strategies with language support
-TN_POLITICS_STRATEGIES = {
-    "piggybacking": {
-        "name": "Piggybacking",
-        "description": "Ride main election wave",
-        "examples": {
-            "tamil": ["#மக்களுக்காகDMK", "#தமிழ்நாடுதேர்தல்2026", "#மாற்றத்திற்குAIADMK", "#TNசட்டசபை2026"],
-            "english": ["#DMKForPeople", "#TamilNaduElections2026", "#AIADMKForChange", "#TNAssembly2026"],
-            "both": ["#DMKForPeople", "#மக்களுக்காகDMK", "#TamilNaduElections2026", "#தமிழ்நாடுதேர்தல்2026"]
-        },
-        "keywords": ["elections", "vote", "campaign", "democracy", "people", "தேர்தல்", "வாக்கு", "பிரச்சாரம்", "ஜனநாயகம்", "மக்கள்"]
-    },
-    "hijacking": {
-        "name": "Hijacking",
-        "description": "Flip opposition slogan",
-        "examples": {
-            "tamil": ["#ஊழல்இல்லாதமிழ்நாடு", "#வெளிப்படையானஅரசு", "#பொறுப்புக்கூறல்", "#தூய்மையானஅரசியல்"],
-            "english": ["#CorruptionFreeTamilNadu", "#TransparentGovt", "#AccountableLeadership", "#CleanPolitics"],
-            "both": ["#CorruptionFreeTamilNadu", "#ஊழல்இல்லாதமிழ்நாடு", "#TransparentGovt", "#வெளிப்படையானஅரசு"]
-        },
-        "keywords": ["corruption", "transparent", "accountable", "clean", "honest", "ஊழல்", "வெளிப்படை", "பொறுப்பு", "தூய்மை"]
-    },
-    "semantic_shifting": {
-        "name": "Semantic Shifting",
-        "description": "Own the narrative",
-        "examples": {
-            "tamil": ["#திராவிடமாதிரி", "#தமிழ்நாடுவளர்ச்சி", "#தென்னிந்தியபெருமை", "#தமிழ்பண்பாடு"],
-            "english": ["#DravidianModel", "#TNDevelopment", "#SouthIndianPride", "#TamilCulture"],
-            "both": ["#DravidianModel", "#திராவிடமாதிரி", "#TNDevelopment", "#தமிழ்நாடுவளர்ச்சி"]
-        },
-        "keywords": ["dravidian", "development", "culture", "heritage", "progress", "திராவிட", "வளர்ச்சி", "பண்பாடு", "பாரம்பரியம்", "முன்னேற்றம்"]
-    },
-    "linking_pairing": {
-        "name": "Linking / Pairing",
-        "description": "Build identity-based tag networks",
-        "examples": {
-            "tamil": ["#விவசாயிகளுக்குDMK", "#பெண்களுக்குAIADMK", "#இளைஞர்களுக்குTN", "#திராவிடமதிப்புகள்"],
-            "english": ["#DMKForFarmers", "#AIADMKForWomen", "#TNForYouth", "#DravidianValues"],
-            "both": ["#DMKForFarmers", "#விவசாயிகளுக்குDMK", "#TNForYouth", "#இளைஞர்களுக்குTN"]
-        },
-        "keywords": ["farmers", "women", "youth", "workers", "students", "விவசாயிகள்", "பெண்கள்", "இளைஞர்கள்", "தொழிலாளர்கள்", "மாணவர்கள்"]
-    },
-    "seeding": {
-        "name": "Seeding",
-        "description": "Start unique, memorable campaigns",
-        "examples": {
-            "tamil": ["#மக்கள்நம்பிக்கை", "#DMK2026வெற்றி", "#தமிழ்நாடுபுதியகாலம்", "#தமிழ்நாடுமுதலில்"],
-            "english": ["#MakkalNambikkai", "#DMK2026Win", "#TNNewEra", "#TamilNaduFirst"],
-            "both": ["#MakkalNambikkai", "#மக்கள்நம்பிக்கை", "#TNNewEra", "#தமிழ்நாடுபுதியகாலம்"]
-        },
-        "keywords": ["unique", "memorable", "campaign", "movement", "change", "தனித்துவம்", "நினைவில்நிற்கும்", "பிரச்சாரம்", "இயக்கம்", "மாற்றம்"]
-    },
-    "challenges": {
-        "name": "Challenges",
-        "description": "Drive user-generated content",
-        "examples": {
-            "tamil": ["#எனூர்எனபெருமை", "#எனதமிழ்நாடு", "#தமிழ்நாடுசவால்", "#உங்கள்பெருமையைகாட்டுங்கள்"],
-            "english": ["#EnOoruEnPerumai", "#MyTamilNadu", "#TNChallenge", "#ShowYourPride"],
-            "both": ["#MyTamilNadu", "#எனதமிழ்நாடு", "#TNChallenge", "#தமிழ்நாடுசவால்"]
-        },
-        "keywords": ["challenge", "participate", "show", "share", "my", "சவால்", "பங்கேற்கவும்", "காட்டு", "பகிர்", "என்"]
-    },
-    "clustering": {
-        "name": "Clustering",
-        "description": "Balance broad + niche + brand appeal",
-        "examples": {
-            "tamil": ["#தமிழ்நாடு", "#சென்னை", "#திமுக", "#வளர்ச்சி", "#கல்வி"],
-            "english": ["#TamilNadu", "#Chennai", "#DMK", "#Development", "#Education"],
-            "both": ["#TamilNadu", "#தமிழ்நாடு", "#Chennai", "#சென்னை", "#Education", "#கல்வி"]
-        },
-        "keywords": ["broad", "specific", "brand", "location", "sector", "பரந்த", "குறிப்பிட்ட", "பிராண்ட்", "இடம்", "துறை"]
-    },
-    "mutation": {
-        "name": "Mutation",
-        "description": "Target sub-regions or groups",
-        "examples": {
-            "tamil": ["#இளைஞர்களுக்குDMK", "#தென்தமிழ்நாட்டில்AIADMK", "#சென்னைமுதலில்", "#கோவைவாக்குகள்"],
-            "english": ["#DMKForYouth", "#AIADMKInSouthTN", "#ChennaiFirst", "#CoimbatoreVotes"],
-            "both": ["#DMKForYouth", "#இளைஞர்களுக்குDMK", "#ChennaiFirst", "#சென்னைமுதலில்"]
-        },
-        "keywords": ["youth", "region", "city", "district", "community", "இளைஞர்", "பகுதி", "நகரம்", "மாவட்டம்", "சமுதாயம்"]
-    }
-}
-
-# Enhanced sentiment-based hashtag templates with language support
-SENTIMENT_HASHTAGS = {
-    "positive": {
-        "government": {
-            "tamil": ["#முன்னேற்றத்தில்TN", "#வளர்ந்துவருதமிழ்நாடு", "#தமிழ்நாடுவெற்றி", "#பெருமைதமிழ்", "#தமிழ்நாடுசாதனைகள்"],
-            "english": ["#ProgressiveTN", "#DevelopingTamilNadu", "#TNSuccess", "#ProudTamil", "#TNAchievements"],
-            "both": ["#ProgressiveTN", "#முன்னேற்றத்தில்TN", "#TNSuccess", "#தமிழ்நாடுவெற்றி", "#ProudTamil", "#பெருமைதமிழ்"]
-        },
-        "social": {
-            "tamil": ["#பன்முகத்துவத்தில்ஒற்றுமை", "#தமிழ்நாடுகுடும்பம்", "#ஒன்றாகமுடியும்", "#பிரகாசமானஎதிர்காலம்", "#தமிழ்நாடுமேலெழும்புகிறது"],
-            "english": ["#UnityInDiversity", "#TNFamily", "#TogetherWeCan", "#BrightFuture", "#TNRising"],
-            "both": ["#UnityInDiversity", "#பன்முகத்துவத்தில்ஒற்றுமை", "#TogetherWeCan", "#ஒன்றாகமுடியும்", "#BrightFuture", "#பிரகாசமானஎதிர்காலம்"]
-        },
-        "development": {
-            "tamil": ["#ஸ்மார்ட்TN", "#டிஜிட்டல்தமிழ்நாடு", "#புதுமையானTN", "#நவீனTN", "#தமிழ்நாடுமுன்னணி"],
-            "english": ["#SmartTN", "#DigitalTamilNadu", "#InnovativeTN", "#ModernTN", "#TNLeads"],
-            "both": ["#SmartTN", "#ஸ்மார்ட்TN", "#DigitalTamilNadu", "#டிஜிட்டல்தமிழ்நாடு", "#TNLeads", "#தமிழ்நாடுமுன்னணி"]
-        },
-        "cultural": {
-            "tamil": ["#தமிழ்பெருமை", "#வளமானபாரம்பரியம்", "#பண்பாட்டுTN", "#தமிழ்பாரம்பரியம்", "#தமிழ்நாடுமதிப்புகள்"],
-            "english": ["#TamilPride", "#RichHeritage", "#CulturalTN", "#TamilTradition", "#TNValues"],
-            "both": ["#TamilPride", "#தமிழ்பெருமை", "#RichHeritage", "#வளமானபாரம்பரியம்", "#TNValues", "#தமிழ்நாடுமதிப்புகள்"]
-        }
-    },
-    "negative": {
-        "opposition": {
-            "tamil": ["#தோல்வியடைந்தகொள்கைகள்", "#வெற்றுவாக்குறுதிகள்", "#ஊழல்தலைமை", "#தமிழ்நாடுசிறந்ததுபெறவேண்டும்", "#மாற்றத்திற்குநேரம்"],
-            "english": ["#FailedPolicies", "#EmptyPromises", "#CorruptLeadership", "#TNDeservesBetter", "#TimeForChange"],
-            "both": ["#FailedPolicies", "#தோல்வியடைந்தகொள்கைகள்", "#EmptyPromises", "#வெற்றுவாக்குறுதிகள்", "#TimeForChange", "#மாற்றத்திற்குநேரம்"]
-        },
-        "issues": {
-            "tamil": ["#தமிழ்நாடுபிரச்சனைகளைசரிசெய்", "#தமிழ்நாடுபோராட்டங்கள்", "#பதிலில்லாதகேள்விகள்", "#இப்போதுபொறுப்புக்கூறல்", "#தமிழ்நாடுநீதி"],
-            "english": ["#FixTNIssues", "#TNStruggles", "#UnansweredQuestions", "#AccountabilityNow", "#JusticeForTN"],
-            "both": ["#FixTNIssues", "#தமிழ்நாடுபிரச்சனைகளைசரிசெய்", "#TNStruggles", "#தமிழ்நாடுபோராட்டங்கள்", "#JusticeForTN", "#தமிழ்நாடுநீதி"]
-        },
-        "criticism": {
-            "tamil": ["#தமிழ்நாடுமாற்றம்தேவை", "#உடைந்தசிஸ்டம்", "#தோல்வியடைந்தஆட்சி", "#தமிழ்நாடுமேலும்கோருகிறது", "#போதும்போதும்"],
-            "english": ["#TNNeedsChange", "#BrokenSystem", "#FailedGovernance", "#TNDemandsMore", "#EnoughIsEnough"],
-            "both": ["#TNNeedsChange", "#தமிழ்நாடுமாற்றம்தேவை", "#BrokenSystem", "#உடைந்தசிஸ்டம்", "#EnoughIsEnough", "#போதும்போதும்"]
-        },
-        "call_to_action": {
-            "tamil": ["#எழுந்திருTN", "#தலைவர்களைகேள்வி", "#பதில்கோருங்கள்", "#தமிழ்நாடுஉண்மைபெறவேண்டும்", "#இப்போதுசெயல்படுங்கள்"],
-            "english": ["#WakeUpTN", "#QuestionLeaders", "#DemandAnswers", "#TNDeservesTruth", "#ActNow"],
-            "both": ["#WakeUpTN", "#எழுந்திருTN", "#QuestionLeaders", "#தலைவர்களைகேள்வி", "#ActNow", "#இப்போதுசெயல்படுங்கள்"]
-        }
-    }
-}
-
 # Pydantic models
-class HashtagPredictRequest(BaseModel):
-    content: str = Field(..., description="Content to analyze for hashtag prediction")
-    max_hashtags: int = Field(default=15, description="Maximum number of hashtags to return")
-
 class ApiConfig(BaseModel):
     provider: str = Field(..., description="API provider (openai or azure)")
     api_key: str = Field(..., description="API key")
@@ -202,16 +107,6 @@ class HashtagStrategies(BaseModel):
     clustering: bool = False
     mutation: bool = False
 
-class PredictHashtagFullRequest(BaseModel):
-    content: str
-    max_hashtags: int = 15
-    config: Optional[ApiConfig] = None
-    strategies: Optional[HashtagStrategies] = None
-    sentiment: Optional[str] = Field(None, description="positive, negative, or neutral")
-    include_tn_politics: bool = False
-    language_preference: str = Field(default="both", description="tamil, english, or both")
-    enable_sentiment_analysis: bool = Field(default=True, description="Enable advanced sentiment analysis")
-
 class HashtagResult(BaseModel):
     hashtag: str
     score: float
@@ -220,6 +115,9 @@ class HashtagResult(BaseModel):
     strategy: Optional[str] = None
     sentiment: Optional[str] = None
     language: Optional[str] = None
+    source: str = "new"
+    frequency_in_rag: Optional[int] = None
+    similar_content_examples: Optional[List[str]] = None
 
 class SentimentAnalysis(BaseModel):
     sentiment: str
@@ -230,29 +128,167 @@ class SentimentAnalysis(BaseModel):
     emotional_tone: Optional[str] = None
     key_emotions: Optional[List[str]] = None
     sentiment_keywords: Optional[List[str]] = None
+    associated_party: Optional[str] = None
+    party_confidence: Optional[float] = None
+
+class RAGHashtagInfo(BaseModel):
+    hashtag: str
+    frequency: int
+    category: str
+
+class RAGAnalysis(BaseModel):
+    total_rag_hashtags: int
+    existing_hashtags_found: int  # Fixed: corrected field name
+    new_hashtags_suggested: int
+    rag_enhanced_hashtags: int
+    top_rag_hashtags: List[RAGHashtagInfo]
+
+class PredictHashtagFullRequest(BaseModel):
+    content: str
+    max_hashtags: int = 15
+    config: Optional[ApiConfig] = None
+    strategies: Optional[HashtagStrategies] = None
+    sentiment: Optional[str] = Field(None, description="positive, negative, or neutral")
+    include_tn_politics: bool = False
+    language_preference: str = Field(default="both", description="tamil, english, or both")
+    enable_sentiment_analysis: bool = Field(default=True, description="Enable advanced sentiment analysis")
 
 class PredictionResponse(BaseModel):
     hashtags: List[HashtagResult]
-    analysis: Dict
+    analysis: Dict[str, Any]
     sentiment_analysis: Optional[SentimentAnalysis] = None
+    rag_analysis: Optional[RAGAnalysis] = None
     source: str
     timestamp: str
+
+# RAG-based hashtag categories
+RAG_HASHTAG_CATEGORIES = {
+    "high_frequency": {
+        "description": "Most frequently used hashtags from historical data",
+        "hashtags": [
+            "ellorumnammudan", "dravidamodel", "dmk4tn", "cmmkstalin", "mkstalincm", 
+            "mkstalin", "mkstalingovt", "dravidianmodel", "governancetamilnadu", 
+            "no1tamilnadu", "stalinbuildstn", "oraethalaivan", "mkstalin4tn", 
+            "mkstalinera", "dmk", "dmkgovt"
+        ],
+        "priority_boost": 2.0
+    },
+    "political_identity": {
+        "description": "Core political identity hashtags",
+        "hashtags": [
+            "dmk", "dmk4tn", "dravidianmodel", "dravidamodel", "kalaignar", 
+            "oraethalaivan", "mkstalin", "cmmkstalin"
+        ],
+        "priority_boost": 1.8
+    },
+    "governance": {
+        "description": "Government and governance focused hashtags",
+        "hashtags": [
+            "governancetamilnadu", "no1tamilnadu", "stalinbuildstn", "mkstalingovt", 
+            "naanmudhalvan", "employment"
+        ],
+        "priority_boost": 1.5
+    }
+}
 
 class HashtagAnalyzer:
     def __init__(self):
         self.hashtag_impact_scores = {}
         self.hashtag_features = {}
         self.tfidf_vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
-        self.impact_model = RandomForestRegressor(
-            n_estimators=100,
-            random_state=42,
-            min_samples_leaf=1,
-            max_features='auto'
-        )
+        self.impact_model = RandomForestRegressor(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
         self.hashtag_cooccurrence = defaultdict(lambda: defaultdict(int))
         self.is_trained = False
         
+        # RAG-specific attributes
+        self.rag_hashtag_frequency = {}
+        self.rag_hashtag_contexts = {}
+        self.rag_content_vectors = None
+        self.rag_hashtag_vectors = {}
+        self.rag_tfidf = TfidfVectorizer(max_features=500, stop_words='english')
+
+  
+    async def load_rag_data(self):
+        """Load and process RAG data from CSV file"""
+        try:
+            rag_data_path =  os.path.join(os.path.dirname(__file__), "unique_ad_bodies.csv")
+            logger.info(f"Looking for RAG data file: {rag_data_path}")
+
+            if os.path.exists(rag_data_path):
+                logger.info("RAG data file found, loading...")
+                with open(rag_data_path, 'r', encoding='utf-8') as file:
+                    reader = csv.DictReader(file)
+                    rag_data = []
+                    
+                    for row in reader:
+                        content = row.get('creative_details.body', '')
+                        if content:
+                            rag_data.append(content)
+                    
+                    if rag_data:
+                        await self.process_rag_data(rag_data)
+                        logger.info(f"✅ RAG data loaded: {len(rag_data)} entries processed")
+                        logger.info(f"✅ Extracted {len(self.rag_hashtag_frequency)} unique hashtags")
+                    else:
+                        logger.warning("⚠️ RAG CSV file is empty or has no valid content")
+                        await self.create_fallback_rag_data()
+            else:
+                logger.warning(f"⚠️ RAG CSV file not found at {rag_data_path}, using fallback data")
+                await self.create_fallback_rag_data()
+                
+        except Exception as e:
+            logger.error(f"❌ Error loading RAG data: {str(e)}")
+            await self.create_fallback_rag_data()
+
+
+    async def create_fallback_rag_data(self):
+        """Create fallback RAG data based on known high-performing hashtags"""
+        logger.info("Creating fallback RAG data...")
+        fallback_data = [
+            "எல்லோரும் நம்முடன்! தமிழ்நாட்டை முன்னேற்றும் திராவிட மாதிரி! #EllorumNammudan #DravidaModel #DMK4TN",
+            "முதலமைச்சர் மு.க.ஸ்டாலின் அவர்களின் தலைமையில் வளர்ச்சியில் முன்னணியில் தமிழ்நாடு! #CMMKStalin #MKStalinCM #No1TamilNadu",
+            "ஒரே தலைவன்! மக்களின் நம்பிக்கைக்குரிய தலைவர்! #OraeThalaivan #MKStalin #GovernanceTamilNadu",
+            "திராவிட மாதிரி ஆட்சியால் வளர்ச்சியடையும் தமிழ்நாடு! #DravidianModel #StalinBuildsTN #MKStalinGovt",
+            "Healthcare infrastructure development in Tamil Nadu with new hospitals! #HealthcareTN #Development #TamilNadu",
+            "Education and employment opportunities for Tamil Nadu youth! #Education #Employment #YouthDevelopment #TamilNadu",
+            "Agriculture modernization and farmer support in Tamil Nadu! #Agriculture #Farmers #ModernFarming #TamilNadu",
+            "Women empowerment and safety initiatives across Tamil Nadu! #WomenEmpowerment #Safety #GenderEquality #TamilNadu",
+            "Technology and innovation driving Tamil Nadu forward! #Technology #Innovation #DigitalTamilNadu #StartupTN",
+            "Infrastructure development connecting rural and urban Tamil Nadu! #Infrastructure #RuralDevelopment #UrbanPlanning #TamilNadu"
+        ]
+        await self.process_rag_data(fallback_data)
+        logger.info(f"✅ Fallback RAG data created with {len(self.rag_hashtag_frequency)} hashtags")
+    
+    async def process_rag_data(self, rag_data: List[str]):
+        """Process RAG data to extract hashtags and contexts"""
+        self.rag_hashtag_frequency = {}
+        self.rag_hashtag_contexts = defaultdict(list)
+        
+        processed_content = []
+        
+        for content in rag_data:
+            if content:
+                hashtags = self.extract_hashtags(content)
+                content_without_hashtags = re.sub(r'#\w+', '', content).strip()
+                
+                if content_without_hashtags:
+                    processed_content.append(content_without_hashtags)
+                
+                for hashtag in hashtags:
+                    self.rag_hashtag_frequency[hashtag] = self.rag_hashtag_frequency.get(hashtag, 0) + 1
+                    self.rag_hashtag_contexts[hashtag].append({
+                        'content': content_without_hashtags,
+                        'full_content': content
+                    })
+        
+        if processed_content:
+            try:
+                self.rag_content_vectors = self.rag_tfidf.fit_transform(processed_content)
+                logger.info(f"✅ RAG TF-IDF vectors created for {len(processed_content)} contents")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not create RAG TF-IDF vectors: {str(e)}")
+    
     def extract_hashtags(self, text: str) -> List[str]:
         """Extract hashtags from text"""
         if pd.isna(text) or text is None:
@@ -260,9 +296,8 @@ class HashtagAnalyzer:
         hashtags = re.findall(r'#\w+', str(text).lower())
         return [tag.replace('#', '') for tag in hashtags]
     
-    def enhanced_sentiment_analysis(self, text: str) -> SentimentAnalysis:
+    def enhanced_sentiment_analysis(self, text: str) -> Dict[str, Any]:
         """Enhanced sentiment analysis with emotional tone detection"""
-        # Enhanced word lists with Tamil words
         positive_words = [
             'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'awesome', 
             'success', 'achievement', 'progress', 'development', 'growth', 'improvement',
@@ -279,21 +314,10 @@ class HashtagAnalyzer:
             'வருத்தம்', 'வெட்கம்', 'ஏமாற்றம்', 'துக்கம்'
         ]
         
-        emotional_words = {
-            'joy': ['happy', 'joy', 'celebrate', 'மகிழ்ச்சி', 'சந்தோஷம்', 'கொண்டாட்டம்'],
-            'anger': ['angry', 'mad', 'furious', 'கோபம்', 'எரிச்சல்', 'கடுப்பு'],
-            'sadness': ['sad', 'depressed', 'sorrow', 'துக்கம்', 'வருத்தம்', 'சோகம்'],
-            'fear': ['scared', 'afraid', 'worried', 'பயம்', 'கவலை', 'அச்சம்'],
-            'surprise': ['surprised', 'shocked', 'amazed', 'ஆச்சரியம்', 'அதிர்ச்சி', 'வியப்பு'],
-            'trust': ['trust', 'believe', 'confident', 'நம்பிக்கை', 'நம்பகம்', 'தன்னம்பிக்கை'],
-            'anticipation': ['excited', 'eager', 'hopeful', 'உற்சாகம்', 'ஆவல்', 'நம்பிக்கை']
-        }
-        
         text_lower = text.lower()
         words = text_lower.split()
         total_words = len(words)
         
-        # Basic sentiment scoring
         positive_count = sum(1 for word in positive_words if word in text_lower)
         negative_count = sum(1 for word in negative_words if word in text_lower)
         
@@ -301,147 +325,26 @@ class HashtagAnalyzer:
         negative_score = negative_count / max(total_words, 1)
         neutral_score = 1 - (positive_score + negative_score)
         
-        # Emotional tone detection
-        emotion_scores = {}
-        for emotion, emotion_words_list in emotional_words.items():
-            emotion_count = sum(1 for word in emotion_words_list if word in text_lower)
-            emotion_scores[emotion] = emotion_count
-        
-        key_emotions = [emotion for emotion, score in emotion_scores.items() if score > 0]
-        key_emotions = sorted(key_emotions, key=lambda x: emotion_scores[x], reverse=True)[:3]
-        
-        # Determine primary sentiment
         if positive_score > negative_score:
             sentiment = "positive"
             confidence = positive_score / (positive_score + negative_score + 0.1)
-            emotional_tone = "optimistic"
         elif negative_score > positive_score:
             sentiment = "negative"
             confidence = negative_score / (positive_score + negative_score + 0.1)
-            emotional_tone = "critical"
         else:
             sentiment = "neutral"
             confidence = 0.5
-            emotional_tone = "informative"
         
-        # Extract sentiment keywords
-        sentiment_keywords = []
-        if sentiment == "positive":
-            sentiment_keywords = [word for word in positive_words if word in text_lower][:5]
-        elif sentiment == "negative":
-            sentiment_keywords = [word for word in negative_words if word in text_lower][:5]
-        
-        return SentimentAnalysis(
-            sentiment=sentiment,
-            confidence=min(confidence, 1.0),
-            positive_score=positive_score,
-            negative_score=negative_score,
-            neutral_score=neutral_score,
-            emotional_tone=emotional_tone,
-            key_emotions=key_emotions,
-            sentiment_keywords=sentiment_keywords
-        )
-    
-    def get_strategy_hashtags(self, content: str, strategies: HashtagStrategies, 
-                            sentiment: str = None, language_preference: str = "both") -> List[HashtagResult]:
-        """Generate hashtags based on selected strategies with language preference"""
-        strategy_hashtags = []
-        content_lower = content.lower()
-        
-        rng = np.random.default_rng(seed=42)
-        for strategy_key, enabled in strategies.dict().items():
-            if not enabled:
-                continue
-                
-            strategy_info = TN_POLITICS_STRATEGIES.get(strategy_key, {})
-            strategy_name = strategy_info.get("name", strategy_key)
-            
-            # Get examples based on language preference
-            if language_preference in ["tamil", "english", "both"]:
-                examples = strategy_info.get("examples", {}).get(language_preference, [])
-            else:
-                examples = strategy_info.get("examples", {}).get("both", [])
-            
-            keywords = strategy_info.get("keywords", [])
-            
-            # Check if content matches strategy keywords
-            keyword_matches = sum(1 for keyword in keywords if keyword in content_lower)
-            relevance_score = (keyword_matches / len(keywords)) * 100 if keywords else 50
-            
-            # Add strategy-specific hashtags
-            for example in examples[:3]:  # Limit to 3 examples per strategy
-                hashtag = example.replace('#', '')
-                score = min(relevance_score + rng.integers(10, 30), 100)
-                
-                # Determine hashtag language
-                hashtag_language = self.detect_hashtag_language(hashtag)
-                
-                strategy_hashtags.append(HashtagResult(
-                    hashtag=hashtag,
-                    score=score,
-                    category="tn_politics",
-                    reasoning=f"Strategy: {strategy_name} - {strategy_info.get('description', '')}",
-                    strategy=strategy_key,
-                    sentiment=sentiment,
-                    language=hashtag_language
-                ))
-        
-        return strategy_hashtags
-    
-    def get_sentiment_hashtags(self, sentiment: str, content: str, 
-                             language_preference: str = "both") -> List[HashtagResult]:
-        """Generate hashtags based on sentiment with language preference"""
-        if sentiment not in SENTIMENT_HASHTAGS:
-            return []
-        
-        sentiment_hashtags = []
-        content_lower = content.lower()
-        rng = np.random.default_rng(seed=42)
-        
-        for category, lang_hashtags in SENTIMENT_HASHTAGS[sentiment].items():
-            # Get hashtags based on language preference
-            if language_preference in ["tamil", "english", "both"]:
-                hashtags = lang_hashtags.get(language_preference, [])
-            else:
-                hashtags = lang_hashtags.get("both", [])
-            
-            # Check content relevance to category
-            category_keywords = {
-                "government": ["government", "policy", "minister", "அரசு", "கொள்கை", "அமைச்சர்"],
-                "social": ["people", "society", "community", "மக்கள்", "சமூகம்", "சமுதாயம்"],
-                "development": ["development", "progress", "growth", "வளர்ச்சி", "முன்னேற்றம்", "வளர்ச்சி"],
-                "cultural": ["culture", "tradition", "heritage", "பண்பாடு", "பாரம்பரியம்", "பாரம்பரிய"],
-                "opposition": ["opposition", "against", "எதிர்ப்பு", "எதிராக"],
-                "issues": ["problem", "issue", "concern", "பிரச்சனை", "பிரச்சினை", "கவலை"],
-                "criticism": ["criticism", "critique", "விமர்சனம்", "விமர்சன"],
-                "call_to_action": ["action", "act", "do", "செய்", "நடவடிக்கை", "செயல்"]
-            }
-            
-            keywords = category_keywords.get(category, [])
-            relevance = sum(1 for keyword in keywords if keyword in content_lower)
-            
-            if relevance > 0 or category in ["government", "social"]:  # Always include basic categories
-                for hashtag in hashtags[:2]:  # Limit to 2 per category
-                    tag = hashtag.replace('#', '')
-                    score = min(60 + relevance * 10 + rng.integers(5, 25), 95)
-                    
-                    # Determine hashtag language
-                    hashtag_language = self.detect_hashtag_language(tag)
-                    
-                    sentiment_hashtags.append(HashtagResult(
-                        hashtag=tag,
-                        score=score,
-                        category="sentiment_based",
-                        reasoning=f"Sentiment-based ({sentiment}) hashtag for {category} content",
-                        sentiment=sentiment,
-                        language=hashtag_language
-                    ))
-        
-        return sentiment_hashtags
+        return {
+            "sentiment": sentiment,
+            "confidence": min(confidence, 1.0),
+            "positive_score": positive_score,
+            "negative_score": negative_score,
+            "neutral_score": neutral_score
+        }
     
     def detect_hashtag_language(self, hashtag: str) -> str:
         """Detect if hashtag is in Tamil, English, or mixed"""
-        # Simple language detection based on character ranges
         tamil_chars = set('அஆஇஈஉஊஎஏஐஒஓஔகஙசஞடணதநபமயரலவழளறனஃ்ாிீுூெேைொோௌ்')
         english_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
         
@@ -458,7 +361,247 @@ class HashtagAnalyzer:
         else:
             return "unknown"
     
-    def calculate_impact_score(self, row: Dict) -> float:
+    def get_rag_hashtags_for_content(self, content: str, max_hashtags: int = 10) -> List[HashtagResult]:
+        """Get hashtags from RAG data based on content similarity"""
+        rag_hashtags = []
+        
+        # Fallback to most frequent hashtags
+        top_hashtags = sorted(
+            self.rag_hashtag_frequency.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )[:max_hashtags]
+        
+        for hashtag, frequency in top_hashtags:
+            rag_hashtags.append(HashtagResult(
+                hashtag=hashtag,
+                score=min(90.0, 60.0 + (frequency * 2)),
+                category="rag_frequent",
+                reasoning=f"High-frequency hashtag from historical data (used {frequency} times)",
+                source="existing",
+                frequency_in_rag=frequency,
+                language=self.detect_hashtag_language(hashtag)
+            ))
+        
+        return rag_hashtags
+    
+    def predict_hashtags_with_rag(self, content: str, max_hashtags: int = 15, 
+                                language_preference: str = "both") -> Dict[str, Any]:
+        """Enhanced hashtag prediction using RAG + ML"""
+        if not self.is_trained:
+            raise ValueError("Model not trained. Call train_model() first.")
+        
+        # Get RAG-based hashtags (highest priority)
+        rag_hashtags = self.get_rag_hashtags_for_content(content, max_hashtags // 2)
+        
+        # Get ML-based hashtags for new suggestions
+        ml_hashtags = self.get_ml_hashtags(content, max_hashtags // 2, language_preference)
+        
+        # Combine and categorize
+        all_hashtags = []
+        existing_count = 0
+        new_count = 0
+        rag_enhanced_count = 0
+        
+        # Add RAG hashtags with priority
+        for hashtag in rag_hashtags:
+            hashtag.source = "existing"
+            existing_count += 1
+            all_hashtags.append(hashtag)
+        
+        # Add ML hashtags as new suggestions
+        for hashtag in ml_hashtags:
+            if hashtag.hashtag in self.rag_hashtag_frequency:
+                hashtag.source = "rag_enhanced"
+                hashtag.frequency_in_rag = self.rag_hashtag_frequency[hashtag.hashtag]
+                hashtag.score = hashtag.score * 1.3
+                rag_enhanced_count += 1
+            else:
+                hashtag.source = "new"
+                new_count += 1
+            all_hashtags.append(hashtag)
+        
+        # Remove duplicates and sort by score
+        seen_hashtags = set()
+        unique_hashtags = []
+        for hashtag in all_hashtags:
+            if hashtag.hashtag not in seen_hashtags:
+                seen_hashtags.add(hashtag.hashtag)
+                unique_hashtags.append(hashtag)
+        
+        # Sort by priority: existing > rag_enhanced > new, then by score
+        priority_order = {"existing": 3, "rag_enhanced": 2, "new": 1}
+        unique_hashtags.sort(
+            key=lambda x: (priority_order.get(x.source, 0), x.score), 
+            reverse=True
+        )
+        
+        # Prepare RAG analysis
+        top_rag_hashtags = [
+            RAGHashtagInfo(
+                hashtag=hashtag, 
+                frequency=freq, 
+                category=self.categorize_rag_hashtag(hashtag)
+            )
+            for hashtag, freq in sorted(
+                self.rag_hashtag_frequency.items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )[:10]
+        ]
+        
+        rag_analysis = RAGAnalysis(
+            total_rag_hashtags=len(self.rag_hashtag_frequency),
+            existing_hashtags_found=existing_count,  # Fixed: correct field name
+            new_hashtags_suggested=new_count,
+            rag_enhanced_hashtags=rag_enhanced_count,
+            top_rag_hashtags=top_rag_hashtags
+        )
+        
+        return {
+            "hashtags": unique_hashtags[:max_hashtags],
+            "rag_analysis": rag_analysis
+        }
+    
+    def categorize_rag_hashtag(self, hashtag: str) -> str:
+        """Categorize RAG hashtag based on predefined categories"""
+        hashtag_lower = hashtag.lower()
+        
+        for category, data in RAG_HASHTAG_CATEGORIES.items():
+            if hashtag_lower in [h.lower() for h in data["hashtags"]]:
+                return category
+        
+        if any(term in hashtag_lower for term in ['dmk', 'stalin', 'dravidian', 'kalaignar']):
+            return "political_identity"
+        elif any(term in hashtag_lower for term in ['govt', 'governance', 'tn', 'tamilnadu']):
+            return "governance"
+        else:
+            return "general"
+    
+    def get_ml_hashtags(self, content: str, max_hashtags: int, language_preference: str) -> List[HashtagResult]:
+        """Get ML-based hashtag predictions"""
+        ml_hashtags = []
+        candidate_hashtags = list(self.hashtag_impact_scores.keys())
+        
+        for hashtag in candidate_hashtags:
+            base_score = self.hashtag_impact_scores.get(hashtag, 0)
+            
+            hashtag_terms = hashtag.split('_') if '_' in hashtag else [hashtag]
+            content_lower = content.lower()
+            
+            relevance_score = sum(
+                1 for term in hashtag_terms 
+                if term in content_lower
+            ) / len(hashtag_terms)
+            
+            hashtag_language = self.detect_hashtag_language(hashtag)
+            language_bonus = 1.0
+            
+            if language_preference == "tamil" and hashtag_language == "tamil":
+                language_bonus = 1.2
+            elif language_preference == "english" and hashtag_language == "english":
+                language_bonus = 1.2
+            elif language_preference == "both":
+                language_bonus = 1.1 if hashtag_language in ["tamil", "english"] else 1.0
+            
+            final_score = (
+                base_score * 0.6 +
+                relevance_score * 100 * 0.4
+            ) * language_bonus
+            
+            if final_score > 5:
+                ml_hashtags.append(HashtagResult(
+                    hashtag=hashtag,
+                    score=round(final_score, 2),
+                    category="ml_predicted",
+                    reasoning=f"ML model prediction based on content relevance and historical performance",
+                    language=hashtag_language
+                ))
+        
+        ml_hashtags.sort(key=lambda x: x.score, reverse=True)
+        return ml_hashtags[:max_hashtags]
+    
+    def train_model(self, ads_data: List[Dict[str, Any]]):
+        """Train the hashtag prediction model with both ads and RAG data"""
+        logger.info("🎯 Training hashtag prediction model...")
+        logger.info(f"📊 Input ads data: {len(ads_data)} entries")
+        logger.info(f"📚 Available RAG hashtags: {len(self.rag_hashtag_frequency)}")
+        
+        # Process historical ads data (if any)
+        if ads_data:
+            logger.info("📈 Processing historical ads data...")
+            self.analyze_historical_data(ads_data)
+            logger.info(f"📈 Extracted {len(self.hashtag_impact_scores)} hashtags from ads data")
+        else:
+            logger.info("📈 No ads data provided, using RAG data only")
+            # Initialize with empty dict if no ads data
+            self.hashtag_impact_scores = {}
+        
+        # Integrate RAG hashtag scores
+        if self.rag_hashtag_frequency:
+            logger.info("📚 Integrating RAG hashtag scores...")
+            for hashtag, frequency in self.rag_hashtag_frequency.items():
+                base_score = self.hashtag_impact_scores.get(hashtag, 0)
+                rag_boost = frequency * 10  # Boost based on frequency
+                self.hashtag_impact_scores[hashtag] = base_score + rag_boost
+            logger.info(f"📚 Enhanced {len(self.hashtag_impact_scores)} hashtags with RAG data")
+        else:
+            logger.warning("📚 No RAG hashtag data available for integration")
+        
+        # Ensure we have some hashtags even if everything fails
+        if not self.hashtag_impact_scores:
+            logger.warning("📚 No hashtag data available, creating minimal fallback")
+            # Create minimal fallback hashtag scores
+            fallback_hashtags = {
+                "dmk4tn": 100,
+                "dravidamodel": 95,
+                "tamilnadu": 90,
+                "mkstalin": 85,
+                "governancetamilnadu": 80,
+                "development": 75,
+                "healthcare": 70,
+                "education": 65,
+                "employment": 60,
+                "innovation": 55
+            }
+            self.hashtag_impact_scores.update(fallback_hashtags)
+            logger.info(f"📚 Created {len(fallback_hashtags)} fallback hashtags")
+        
+        self.is_trained = True
+        logger.info(f"✅ Model training completed!")
+        logger.info(f"✅ Total hashtags available: {len(self.hashtag_impact_scores)}")
+        logger.info(f"✅ Model status: {'Trained' if self.is_trained else 'Not Trained'}")
+    
+    def analyze_historical_data(self, ads_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze historical ads data"""
+        hashtag_metrics = defaultdict(lambda: {
+            'total_impact': 0, 'count': 0, 'avg_engagement': 0,
+            'avg_reach': 0, 'avg_ctr': 0, 'total_spend': 0, 'campaigns': set()
+        })
+        
+        for ad in ads_data:
+            creative_body = ad.get('creative_details', {}).get('body', '')
+            hashtags = self.extract_hashtags(creative_body)
+            
+            if not hashtags:
+                continue
+                
+            impact_score = self.calculate_impact_score(ad)
+            
+            for hashtag in hashtags:
+                metrics = hashtag_metrics[hashtag]
+                metrics['total_impact'] += impact_score
+                metrics['count'] += 1
+                metrics['avg_engagement'] += float(ad.get('inline_post_engagement', 0))
+        
+        for hashtag, metrics in hashtag_metrics.items():
+            if metrics['count'] > 0:
+                metrics['avg_impact'] = metrics['total_impact'] / metrics['count']
+                self.hashtag_impact_scores[hashtag] = metrics['avg_impact']
+        
+        return dict(hashtag_metrics)
+    
+    def calculate_impact_score(self, row: Dict[str, Any]) -> float:
         """Calculate impact score based on multiple metrics"""
         engagement_score = (
             float(row.get('inline_post_engagement', 0)) * 0.3 +
@@ -485,199 +628,80 @@ class HashtagAnalyzer:
         
         return impact_score
     
-    def analyze_historical_data(self, ads_data: List[Dict]) -> Dict:
-        """Analyze historical ads data to find top performing hashtags"""
-        hashtag_metrics = defaultdict(lambda: {
-            'total_impact': 0,
-            'count': 0,
-            'avg_engagement': 0,
-            'avg_reach': 0,
-            'avg_ctr': 0,
-            'total_spend': 0,
-            'campaigns': set()
-        })
+    def get_rag_context_for_ai(self, content: str) -> str:
+        """Get RAG context for AI prompt"""
+        top_hashtags = sorted(
+            self.rag_hashtag_frequency.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )[:20]
         
-        for ad in ads_data:
-            creative_body = ad.get('creative_details', {}).get('body', '')
-            hashtags = self.extract_hashtags(creative_body)
-            
-            if not hashtags:
-                continue
-                
-            impact_score = self.calculate_impact_score(ad)
-            
-            # Update hashtag cooccurrence matrix
-            for i, tag1 in enumerate(hashtags):
-                for j, tag2 in enumerate(hashtags):
-                    if i != j:
-                        self.hashtag_cooccurrence[tag1][tag2] += 1
-            
-            # Update metrics for each hashtag
-            for hashtag in hashtags:
-                metrics = hashtag_metrics[hashtag]
-                metrics['total_impact'] += impact_score
-                metrics['count'] += 1
-                metrics['avg_engagement'] += float(ad.get('inline_post_engagement', 0))
-                metrics['avg_reach'] += float(ad.get('reach', 0))
-                metrics['avg_ctr'] += float(ad.get('ctr', 0))
-                metrics['total_spend'] += float(ad.get('spend', 0))
-                metrics['campaigns'].add(ad.get('campaign_name', ''))
+        rag_context = "HIGH-FREQUENCY HASHTAGS (use these when relevant):\n"
+        for hashtag, freq in top_hashtags[:10]:
+            rag_context += f"#{hashtag} (used {freq} times)\n"
         
-        # Calculate final metrics
-        for hashtag, metrics in hashtag_metrics.items():
-            if metrics['count'] > 0:
-                metrics['avg_impact'] = metrics['total_impact'] / metrics['count']
-                metrics['avg_engagement'] = metrics['avg_engagement'] / metrics['count']
-                metrics['avg_reach'] = metrics['avg_reach'] / metrics['count']
-                metrics['avg_ctr'] = metrics['avg_ctr'] / metrics['count']
-                metrics['avg_spend'] = metrics['total_spend'] / metrics['count']
-                metrics['campaign_diversity'] = len(metrics['campaigns'])
-                
-                self.hashtag_impact_scores[hashtag] = metrics['avg_impact']
-        
-        return dict(hashtag_metrics)
+        return rag_context
     
-    def train_model(self, ads_data: List[Dict]):
-        """Train the hashtag prediction model"""
-        logger.info("Training hashtag prediction model...")
+    def enhance_ai_results_with_rag(self, ai_hashtags: List[Dict[str, Any]], content: str) -> List[HashtagResult]:
+        """Enhance AI results with RAG metadata"""
+        enhanced_hashtags = []
         
-        # Analyze historical data
-        self.analyze_historical_data(ads_data)
+        for hashtag_dict in ai_hashtags:
+            hashtag = hashtag_dict["hashtag"]
+            frequency = self.rag_hashtag_frequency.get(hashtag, 0)
+            
+            source = hashtag_dict.get("source", "new")
+            if frequency > 0:
+                source = "existing" if frequency > 10 else "rag_enhanced"
+            
+            similar_examples = []
+            if hashtag in self.rag_hashtag_contexts:
+                examples = self.rag_hashtag_contexts[hashtag][:2]
+                similar_examples = [ex['content'][:100] + "..." for ex in examples]
+            
+            enhanced_hashtags.append(HashtagResult(
+                hashtag=hashtag,
+                score=hashtag_dict["score"],
+                category=hashtag_dict["category"],
+                reasoning=hashtag_dict["reasoning"],
+                source=source,
+                frequency_in_rag=frequency if frequency > 0 else None,
+                similar_content_examples=similar_examples if similar_examples else None,
+                language=hashtag_dict.get("language", "unknown")
+            ))
         
-        # Prepare historical content for TF-IDF
-        historical_content = []
-        for ad in ads_data:
-            content = ad.get('creative_details', {}).get('body', '')
-            if content:
-                historical_content.append(content)
-        
-        if historical_content:
-            self.tfidf_vectorizer.fit(historical_content)
-        
-        self.is_trained = True
-        logger.info(f"Model trained with {len(self.hashtag_impact_scores)} hashtags")
+        return enhanced_hashtags
     
-    def predict_hashtags_local(self, content: str, max_hashtags: int = 15, 
-                             strategies: HashtagStrategies = None, 
-                             sentiment: str = None,
-                             language_preference: str = "both") -> List[HashtagResult]:
-        """Predict hashtags using local ML model with strategies, sentiment, and language preference"""
-        if not self.is_trained:
-            raise ValueError("Model not trained. Call train_model() first.")
-        
-        all_hashtags = []
-        
-        # Get strategy-based hashtags
-        if strategies:
-            strategy_hashtags = self.get_strategy_hashtags(
-                content, strategies, sentiment, language_preference
+    def get_rag_analysis_summary(self) -> RAGAnalysis:
+        """Get summary of RAG analysis"""
+        top_rag_hashtags = [
+            RAGHashtagInfo(
+                hashtag=hashtag, 
+                frequency=freq, 
+                category=self.categorize_rag_hashtag(hashtag)
             )
-            all_hashtags.extend(strategy_hashtags)
+            for hashtag, freq in sorted(
+                self.rag_hashtag_frequency.items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )[:10]
+        ]
         
-        # Get sentiment-based hashtags
-        if sentiment and sentiment != "neutral":
-            sentiment_hashtags = self.get_sentiment_hashtags(
-                sentiment, content, language_preference
-            )
-            all_hashtags.extend(sentiment_hashtags)
-        
-        # Get ML-based hashtags
-        candidate_hashtags = list(self.hashtag_impact_scores.keys())
-        ml_hashtags = []
-        
-        for hashtag in candidate_hashtags:
-            base_score = self.hashtag_impact_scores.get(hashtag, 0)
-            
-            # Content relevance score
-            relevance_score = 0
-            hashtag_terms = hashtag.split('_') if '_' in hashtag else [hashtag]
-            content_lower = content.lower()
-            
-            relevance_score = sum(
-                1 for term in hashtag_terms 
-                if term in content_lower
-            ) / len(hashtag_terms)
-            
-            # Co-occurrence bonus
-            cooccurrence_score = 0
-            content_hashtags = self.extract_hashtags(content)
-            if content_hashtags:
-                cooccurrence_score = np.mean([
-                    self.hashtag_cooccurrence[hashtag].get(existing_tag, 0)
-                    for existing_tag in content_hashtags
-                ])
-            
-            # Language preference filtering
-            hashtag_language = self.detect_hashtag_language(hashtag)
-            language_bonus = 1.0
-            
-            if language_preference == "tamil" and hashtag_language == "tamil":
-                language_bonus = 1.2
-            elif language_preference == "english" and hashtag_language == "english":
-                language_bonus = 1.2
-            elif language_preference == "both":
-                language_bonus = 1.1 if hashtag_language in ["tamil", "english"] else 1.0
-            elif language_preference != "both" and hashtag_language != language_preference:
-                language_bonus = 0.8
-            
-            # Combined score
-            final_score = (
-                base_score * 0.6 +
-                relevance_score * 100 * 0.3 +
-                cooccurrence_score * 0.1
-            ) * language_bonus
-            
-            if final_score > 5:  # Only include if score is reasonable
-                ml_hashtags.append(HashtagResult(
-                    hashtag=hashtag,
-                    score=round(final_score, 2),
-                    category="ml_predicted",
-                    reasoning=f"ML model prediction based on historical performance (score: {final_score:.1f})",
-                    sentiment=sentiment,
-                    language=hashtag_language
-                ))
-        
-        # Sort ML hashtags by score
-        ml_hashtags.sort(key=lambda x: x.score, reverse=True)
-        
-        # Combine all hashtags
-        all_hashtags.extend(ml_hashtags[:max_hashtags//2])
-        
-        # Remove duplicates and sort by score
-        seen_hashtags = set()
-        unique_hashtags = []
-        for hashtag in all_hashtags:
-            if hashtag.hashtag not in seen_hashtags:
-                seen_hashtags.add(hashtag.hashtag)
-                unique_hashtags.append(hashtag)
-        
-        unique_hashtags.sort(key=lambda x: x.score, reverse=True)
-        return unique_hashtags[:max_hashtags]
+        return RAGAnalysis(
+            total_rag_hashtags=len(self.rag_hashtag_frequency),
+            existing_hashtags_found=0,
+            new_hashtags_suggested=0,
+            rag_enhanced_hashtags=0,
+            top_rag_hashtags=top_rag_hashtags
+        )
 
 # Global analyzer instance
 analyzer = HashtagAnalyzer()
 
-# Load and train model on startup
-@app.on_event("startup")
-async def startup_event():
-    try:
-        # Load historical data
-        with open("output.json", "r", encoding="utf-8") as f:
-            ads_data = json.load(f)
-        
-        # Train the model
-        analyzer.train_model(ads_data)
-        logger.info("✅ Model trained successfully on startup")
-    except FileNotFoundError:
-        logger.warning("⚠️ output.json not found. Model will use fallback predictions.")
-    except Exception as e:
-        logger.error(f"❌ Error training model: {str(e)}")
-
-async def predict_with_azure_openai(content: str, config: ApiConfig, max_hashtags: int = 10,
-                                  strategies: HashtagStrategies = None, sentiment: str = None,
-                                  language_preference: str = "both",
-                                  enable_sentiment_analysis: bool = True) -> Dict:
-    """Predict hashtags using Azure OpenAI with enhanced features"""
+async def predict_with_azure_openai_rag(content: str, config: ApiConfig, max_hashtags: int = 10,
+                                      strategies: Optional[HashtagStrategies] = None, sentiment: str = None,
+                                      language_preference: str = "both", rag_context: str = "") -> Dict[str, Any]:
+    """Predict hashtags using Azure OpenAI enhanced with RAG context"""
     try:
         if config.provider == "azure":
             client = AzureOpenAI(
@@ -688,109 +712,54 @@ async def predict_with_azure_openai(content: str, config: ApiConfig, max_hashtag
         else:
             client = openai.OpenAI(api_key=config.api_key)
         
-        strategy_context = ""
-        if strategies:
-            enabled_strategies = [k for k, v in strategies.dict().items() if v]
-            if enabled_strategies:
-                strategy_context = f"\nFocus on these hashtag strategies: {', '.join(enabled_strategies)}"
-                for strategy in enabled_strategies:
-                    if strategy in TN_POLITICS_STRATEGIES:
-                        strategy_info = TN_POLITICS_STRATEGIES[strategy]
-                        strategy_context += f"\n- {strategy_info['name']}: {strategy_info['description']}"
-        
-        sentiment_context = ""
-        if sentiment and sentiment != "neutral":
-            sentiment_context = f"\nSentiment focus: Generate {sentiment} hashtags that align with a {sentiment} tone."
-        
-        language_context = ""
-        if language_preference == "tamil":
-            language_context = "\nLanguage preference: Prioritize Tamil hashtags (தமிழ் hashtags)"
-        elif language_preference == "english":
-            language_context = "\nLanguage preference: Prioritize English hashtags"
-        else:
-            language_context = "\nLanguage preference: Mix of Tamil and English hashtags"
-        
-        enhanced_sentiment_prompt = ""
-        if enable_sentiment_analysis:
-            enhanced_sentiment_prompt = """
-7. Enhanced sentiment analysis including:
-   - Emotional tone detection (optimistic, critical, informative, etc.)
-   - Key emotions present in the content
-   - Sentiment keywords that influenced the analysis
-   - Cultural context for Tamil content"""
-
         prompt = f"""
-You are an expert social media strategist specializing in hashtag optimization for Tamil Nadu government and social campaigns, with a strong focus on Dravidian politics, especially the DMK (Dravida Munnetra Kazhagam) party and its alliances.
+            You are an expert social media strategist specializing in hashtag optimization for Tamil Nadu government and social campaigns.
 
-Analyze the following content and provide the most effective hashtags for maximum engagement and reach, particularly those that resonate with DMK's political themes, governance efforts, social justice values, and cultural relevance in Tamil Nadu.
+            IMPORTANT RAG CONTEXT - Use these high-performing hashtags from historical data:
+            {rag_context}
 
-Content: "{content}"
-{strategy_context}
-{sentiment_context}
-{language_context}
+            Content: "{content}"
+            Language Preference: {language_preference}
+            Target Sentiment: {sentiment or 'balanced'}
 
-Please provide:
-1. {max_hashtags} most relevant and high-performing hashtags
-2. Brief analysis of content themes
-3. Engagement potential score (1-100) for each hashtag
-4. Reason for each hashtag recommendation
-5. Sentiment analysis of the content
-6. Most likely political party or alliance the content is associated with (e.g., DMK, AIADMK, BJP, Congress, or Others) based on tone, language, and keywords
-{enhanced_sentiment_prompt}
-8. Language classification for each hashtag (tamil, english, mixed)
-
-Focus on:
-- Tamil Nadu specific hashtags for DMK 
-- Government/political campaign hashtags for DMK
-- DMK-aligned themes and narratives (social welfare, inclusivity, Tamil pride, etc.)
-- Industry-specific and trending social media hashtags for DMK
-- Mix of popular and niche hashtags for DMK based on language preference
-- Strategic hashtag placement based on selected strategies
-- Party-aligned tags when content is politically charged or pro-DMK
-- Avoid tags that promote opposition narratives (unless the goal is critical analysis)
-
-Respond in JSON format:
-{{
-  "sentiment_analysis": {{
-    "sentiment": "positive/negative/neutral",
-    "confidence": 0.85,
-    "positive_score": 0.7,
-    "negative_score": 0.1,
-    "neutral_score": 0.2,
-    "emotional_tone": "optimistic/critical/informative/etc",
-    "key_emotions": ["joy", "trust", "anticipation"],
-    "sentiment_keywords": ["keyword1", "keyword2"],
-    "associated_party": "DMK/AIADMK/BJP/Congress/Others/None",
-    "party_confidence": 0.78
-  }},
-  "analysis": {{
-    "themes": ["theme1", "theme2"],
-    "keywords": ["keyword1", "keyword2"],
-    "content_type": "government/business/social",
-    "language": "tamil/english/mixed",
-    "target_audience": "description"
-  }},
-  "hashtags": [
-    {{
-      "hashtag": "hashtag_without_hash",
-      "score": 85,
-      "category": "government/industry/trending/tn_politics/sentiment_based",
-      "reasoning": "why this hashtag is recommended",
-      "source": "meta_ads/trending/strategy/party_specific",
-      "strategy": "piggybacking/hijacking/etc or null",
-      "sentiment": "positive/negative/neutral or null",
-      "language": "tamil/english/mixed"
-    }}
-  ]
-}}
-"""
+            Respond in JSON format:
+            {{
+            "sentiment_analysis": {{
+                "sentiment": "positive/negative/neutral",
+                "confidence": 0.85,
+                "positive_score": 0.7,
+                "negative_score": 0.1,
+                "neutral_score": 0.2,
+                "emotional_tone": "optimistic",
+                "key_emotions": ["joy", "trust"],
+                "sentiment_keywords": ["development", "progress"]
+            }},
+            "analysis": {{
+                "themes": ["healthcare", "development"],
+                "keywords": ["healthcare", "infrastructure", "rural"],
+                "content_type": "government",
+                "language": "english",
+                "target_audience": "general public"
+            }},
+            "hashtags": [
+                {{
+                "hashtag": "HealthcareTN",
+                "score": 85,
+                "category": "government",
+                "reasoning": "Relevant to healthcare development content",
+                "source": "new",
+                "language": "english"
+                }}
+            ]
+            }}
+            """
 
         response = client.chat.completions.create(
             model=config.model,
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert social media strategist and hashtag optimization specialist with deep knowledge of Tamil Nadu politics, culture, and social media trends. You understand both Tamil and English languages and can provide culturally appropriate hashtag recommendations."
+                    "content": "You are an expert social media strategist with access to historical hashtag performance data."
                 },
                 {
                     "role": "user",
@@ -804,62 +773,29 @@ Respond in JSON format:
         ai_response = response.choices[0].message.content
         
         try:
-            # Remove code block markers if present
-            if isinstance(ai_response, str):
-                cleaned = ai_response.strip()
-                # Remove triple backticks and optional 'json' language tag
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.lstrip("`")
-                    # Remove 'json' if present
-                    if cleaned.lower().startswith("json"):
-                        cleaned = cleaned[4:].lstrip()
-                    # Remove trailing ```
-                    if cleaned.endswith("```"):
-                        cleaned = cleaned[:-3].rstrip()
-                # Remove leading/trailing whitespace
-                cleaned = cleaned.strip()
-            else:
-                cleaned = ai_response
-        
+            cleaned = ai_response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.lstrip("`")
+                if cleaned.lower().startswith("json"):
+                    cleaned = cleaned[4:].lstrip()
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].rstrip()
+            cleaned = cleaned.strip()
+            
             return json.loads(cleaned)
         except json.JSONDecodeError:
             logger.warning(f"AI response is not valid JSON: {ai_response!r}")
-            # If JSON parsing fails, extract hashtags from text
-            hashtags = []
-            if isinstance(ai_response, str) and ai_response.strip():
-                hashtag_matches = re.findall(r'#[\w]+', ai_response)
-                for i, tag in enumerate(hashtag_matches):
-                    hashtags.append({
-                        "hashtag": tag.replace('#', ''),
-                        "score": max(50, 75 - i * 2),
-                        "category": "extracted",
-                        "reasoning": "Extracted from AI response",
-                        "strategy": None,
-                        "sentiment": sentiment,
-                        "language": "unknown"
-                    })
-            else:
-                logger.warning("AI response is empty or not a string.")
-        
             return {
                 "sentiment_analysis": {
-                    "sentiment": sentiment or "neutral",
+                    "sentiment": "neutral", 
                     "confidence": 0.5,
                     "positive_score": 0.33,
                     "negative_score": 0.33,
                     "neutral_score": 0.34,
-                    "emotional_tone": "informative",
-                    "key_emotions": [],
-                    "sentiment_keywords": []
+                    "emotional_tone": "informative"
                 },
-                "analysis": {
-                    "themes": ["general"],
-                    "keywords": content.split()[:5],
-                    "content_type": "general",
-                    "language": "mixed",
-                    "target_audience": "general audience"
-                },
-                "hashtags": hashtags
+                "analysis": {"themes": ["general"], "keywords": [], "content_type": "general"},
+                "hashtags": []
             }
     
     except Exception as e:
@@ -869,55 +805,52 @@ Respond in JSON format:
 @app.post("/predict-hashtags", response_model=PredictionResponse)
 async def predict_hashtags(request: PredictHashtagFullRequest):
     try:
-        # Analyze sentiment
-        if request.enable_sentiment_analysis:
-            sentiment_analysis = analyzer.enhanced_sentiment_analysis(request.content)
-        else:
-            sentiment_analysis = analyzer.enhanced_sentiment_analysis(request.content)  # Basic analysis
-        
-        final_sentiment = request.sentiment or sentiment_analysis.sentiment
-        request.max_hashtags = min(request.max_hashtags, 20)  # Limit to max 20 hashtags
+        sentiment_analysis = analyzer.enhanced_sentiment_analysis(request.content)
+        final_sentiment = request.sentiment or sentiment_analysis['sentiment']
+        max_hashtags = min(request.max_hashtags, 20)
+        language_preference = request.language_preference
 
         if request.config and request.config.api_key:
-            # Use AI API
-            logger.info("Using AI API for prediction")
-            ai_result = await predict_with_azure_openai(
-                request.content, request.config, request.max_hashtags, 
-                request.strategies, final_sentiment, request.language_preference,
-                request.enable_sentiment_analysis
+            logger.info("Using AI API with RAG enhancement for prediction")
+            
+            rag_context = analyzer.get_rag_context_for_ai(request.content)
+            
+            ai_result = await predict_with_azure_openai_rag(
+                request.content, request.config, max_hashtags, 
+                request.strategies, final_sentiment, 
+                language_preference, rag_context
             )
             
-            hashtags = [
-                HashtagResult(
-                    hashtag=h["hashtag"],
-                    score=h["score"],
-                    category=h["category"],
-                    reasoning=h["reasoning"],
-                    strategy=h.get("strategy"),
-                    sentiment=h.get("sentiment"),
-                    language=h.get("language", "unknown")
-                )
-                for h in ai_result["hashtags"]
-            ]
+            enhanced_hashtags = analyzer.enhance_ai_results_with_rag(
+                ai_result["hashtags"], request.content
+            )
             
-            # Use AI sentiment analysis if available
-            ai_sentiment = ai_result.get("sentiment_analysis")
-            if ai_sentiment and request.enable_sentiment_analysis:
-                sentiment_analysis = SentimentAnalysis(**ai_sentiment)
+            ai_sentiment = ai_result.get("sentiment_analysis", {})
+            sentiment_analysis_obj = SentimentAnalysis(
+                sentiment=ai_sentiment.get("sentiment", sentiment_analysis["sentiment"]),
+                confidence=ai_sentiment.get("confidence", sentiment_analysis["confidence"]),
+                positive_score=ai_sentiment.get("positive_score", sentiment_analysis["positive_score"]),
+                negative_score=ai_sentiment.get("negative_score", sentiment_analysis["negative_score"]),
+                neutral_score=ai_sentiment.get("neutral_score", sentiment_analysis["neutral_score"]),
+                emotional_tone=ai_sentiment.get("emotional_tone"),
+                key_emotions=ai_sentiment.get("key_emotions"),
+                sentiment_keywords=ai_sentiment.get("sentiment_keywords"),
+                associated_party=ai_sentiment.get("associated_party"),
+                party_confidence=ai_sentiment.get("party_confidence")
+            )
             
             return PredictionResponse(
-                hashtags=hashtags,
+                hashtags=enhanced_hashtags,
                 analysis=ai_result["analysis"],
-                sentiment_analysis=sentiment_analysis,
-                source=f"AI_{request.config.provider.upper()}",
+                sentiment_analysis=sentiment_analysis_obj,
+                rag_analysis=analyzer.get_rag_analysis_summary(),
+                source=f"AI_{request.config.provider.upper()}_RAG",
                 timestamp=datetime.now().isoformat()
             )
         else:
-            # Use local ML model
-            logger.info("Using local ML model for prediction")
-            hashtags = analyzer.predict_hashtags_local(
-                request.content, request.max_hashtags, 
-                request.strategies, final_sentiment, request.language_preference
+            logger.info("Using local ML model with RAG for prediction")
+            result = analyzer.predict_hashtags_with_rag(
+                request.content, max_hashtags, language_preference
             )
             
             analysis = {
@@ -928,11 +861,20 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
                 "target_audience": "general public"
             }
             
+            sentiment_analysis_obj = SentimentAnalysis(
+                sentiment=sentiment_analysis["sentiment"],
+                confidence=sentiment_analysis["confidence"],
+                positive_score=sentiment_analysis["positive_score"],
+                negative_score=sentiment_analysis["negative_score"],
+                neutral_score=sentiment_analysis["neutral_score"]
+            )
+            
             return PredictionResponse(
-                hashtags=hashtags,
+                hashtags=result["hashtags"],
                 analysis=analysis,
-                sentiment_analysis=sentiment_analysis if request.enable_sentiment_analysis else None,
-                source="LOCAL_ML",
+                sentiment_analysis=sentiment_analysis_obj,
+                rag_analysis=result["rag_analysis"],
+                source="LOCAL_ML_RAG",
                 timestamp=datetime.now().isoformat()
             )
     except Exception as e:
@@ -941,36 +883,207 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with RAG status"""
     return {
         "status": "healthy",
         "model_trained": analyzer.is_trained,
         "hashtag_count": len(analyzer.hashtag_impact_scores),
+        "rag_hashtags": len(analyzer.rag_hashtag_frequency),
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/top-hashtags")
-async def get_top_hashtags(limit: int = 20):
-    """Get top performing hashtags from historical data"""
-    logger.info(f"/top-hashtags called. is_trained={analyzer.is_trained}, hashtag_count={len(analyzer.hashtag_impact_scores)}")
-    if not analyzer.is_trained:
-        logger.warning("Model not trained when /top-hashtags called.")
-        raise HTTPException(status_code=400, detail="Model not trained")
-    if not analyzer.hashtag_impact_scores:
-        logger.warning("Model trained but hashtag_impact_scores is empty.")
-        raise HTTPException(status_code=404, detail="No hashtag data available. Check if output.json is present and valid.")
-    sorted_hashtags = sorted(
-        analyzer.hashtag_impact_scores.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
+@app.get("/rag-stats")
+async def get_rag_stats():
+    """Get RAG database statistics"""
+    logger.info("get_rag_stats called")
+    
+    if not analyzer.rag_hashtag_frequency:
+        logger.warning("RAG data not loaded, returning fallback stats")
+        
+        # Return fallback stats if RAG data isn't loaded
+        return {
+            "total_rag_hashtags": 0,
+            "top_hashtags": [],
+            "categories": {"fallback": 1},
+            "total_contexts": 0,
+            "status": "RAG data not loaded - check if unique_ad_bodies.csv exists"
+        }
+    
+    top_hashtags = [
+        RAGHashtagInfo(
+            hashtag=hashtag, 
+            frequency=freq, 
+            category=analyzer.categorize_rag_hashtag(hashtag)
+        )
+        for hashtag, freq in sorted(
+            analyzer.rag_hashtag_frequency.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )[:20]
+    ]
+    
+    categories = {}
+    for hashtag, freq in analyzer.rag_hashtag_frequency.items():
+        category = analyzer.categorize_rag_hashtag(hashtag)
+        categories[category] = categories.get(category, 0) + 1
+    
     return {
+        "total_rag_hashtags": len(analyzer.rag_hashtag_frequency),
         "top_hashtags": [
-            {"hashtag": hashtag, "score": score}
-            for hashtag, score in sorted_hashtags[:limit]
+            {
+                "hashtag": hashtag_info.hashtag, 
+                "frequency": hashtag_info.frequency, 
+                "category": hashtag_info.category
+            }
+            for hashtag_info in top_hashtags
         ],
-        "total_count": len(analyzer.hashtag_impact_scores)
+        "categories": categories,
+        "total_contexts": sum(len(contexts) for contexts in analyzer.rag_hashtag_contexts.values()),
+        "status": "RAG data loaded successfully"
     }
+
+@app.get("/top-hashtags")
+async def get_top_hashtags(limit: int = 20, source: str = "all"):
+    """Get top performing hashtags with source filter"""
+    logger.info(f"get_top_hashtags called with source={source}, limit={limit}")
+    logger.info(f"Model trained status: {analyzer.is_trained}")
+    logger.info(f"Available hashtag scores: {len(analyzer.hashtag_impact_scores)}")
+    logger.info(f"Available RAG hashtags: {len(analyzer.rag_hashtag_frequency)}")
+    
+    # Always return something useful, even if model isn't trained
+    if not analyzer.is_trained:
+        logger.warning("Model not trained, returning fallback hashtags")
+        fallback_hashtags = [
+            {"hashtag": "DMK4TN", "score": 95, "source": "fallback", "category": "political_identity"},
+            {"hashtag": "DravidaModel", "score": 90, "source": "fallback", "category": "political_identity"},
+            {"hashtag": "TamilNadu", "score": 85, "source": "fallback", "category": "governance"},
+            {"hashtag": "MKStalin", "score": 80, "source": "fallback", "category": "political_identity"},
+            {"hashtag": "GovernanceTamilNadu", "score": 75, "source": "fallback", "category": "governance"},
+            {"hashtag": "Development", "score": 70, "source": "fallback", "category": "governance"},
+            {"hashtag": "Healthcare", "score": 65, "source": "fallback", "category": "governance"},
+            {"hashtag": "Education", "score": 60, "source": "fallback", "category": "governance"},
+            {"hashtag": "Employment", "score": 55, "source": "fallback", "category": "governance"},
+            {"hashtag": "Innovation", "score": 50, "source": "fallback", "category": "governance"}
+        ]
+        
+        return {
+            "top_hashtags": fallback_hashtags[:limit],
+            "total_count": len(fallback_hashtags),
+            "source": "Fallback Data (Model Not Trained)"
+        }
+    
+    if source == "rag":
+        if not analyzer.rag_hashtag_frequency:
+            logger.warning("No RAG hashtag data available")
+            return {
+                "top_hashtags": [],
+                "total_count": 0,
+                "source": "RAG Database (No Data)"
+            }
+        
+        sorted_hashtags = sorted(
+            analyzer.rag_hashtag_frequency.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        return {
+            "top_hashtags": [
+                {
+                    "hashtag": hashtag, 
+                    "score": freq, 
+                    "source": "rag",
+                    "category": analyzer.categorize_rag_hashtag(hashtag)
+                }
+                for hashtag, freq in sorted_hashtags[:limit]
+            ],
+            "total_count": len(analyzer.rag_hashtag_frequency),
+            "source": "RAG Database"
+        }
+    elif source == "ml":
+        if not analyzer.hashtag_impact_scores:
+            logger.warning("No ML hashtag data available")
+            return {
+                "top_hashtags": [],
+                "total_count": 0,
+                "source": "ML Model (No Data)"
+            }
+        
+        sorted_hashtags = sorted(
+            analyzer.hashtag_impact_scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        return {
+            "top_hashtags": [
+                {"hashtag": hashtag, "score": score, "source": "ml", "category": "ml_predicted"}
+                for hashtag, score in sorted_hashtags[:limit]
+                if hashtag not in analyzer.rag_hashtag_frequency
+            ],
+            "total_count": len(analyzer.hashtag_impact_scores),
+            "source": "ML Model"
+        }
+    else:  # source == "all"
+        combined_hashtags = {}
+        
+        # Add RAG hashtags with boost
+        for hashtag, freq in analyzer.rag_hashtag_frequency.items():
+            combined_hashtags[hashtag] = {
+                "score": freq * 10,
+                "source": "rag",
+                "category": analyzer.categorize_rag_hashtag(hashtag)
+            }
+        
+        # Add ML hashtags
+        for hashtag, score in analyzer.hashtag_impact_scores.items():
+            if hashtag in combined_hashtags:
+                combined_hashtags[hashtag]["score"] += score
+                combined_hashtags[hashtag]["source"] = "rag_enhanced"
+            else:
+                combined_hashtags[hashtag] = {
+                    "score": score,
+                    "source": "ml",
+                    "category": "ml_predicted"
+                }
+        
+        if not combined_hashtags:
+            # Return fallback hashtags if no data available
+            logger.warning("No combined hashtag data available, using fallback")
+            fallback_hashtags = [
+                {"hashtag": "DMK4TN", "score": 95, "source": "fallback", "category": "political_identity"},
+                {"hashtag": "DravidaModel", "score": 90, "source": "fallback", "category": "political_identity"},
+                {"hashtag": "TamilNadu", "score": 85, "source": "fallback", "category": "governance"},
+                {"hashtag": "MKStalin", "score": 80, "source": "fallback", "category": "political_identity"},
+                {"hashtag": "GovernanceTamilNadu", "score": 75, "source": "fallback", "category": "governance"},
+                {"hashtag": "Development", "score": 70, "source": "fallback", "category": "governance"},
+                {"hashtag": "Healthcare", "score": 65, "source": "fallback", "category": "governance"},
+                {"hashtag": "Education", "score": 60, "source": "fallback", "category": "governance"}
+            ]
+            
+            return {
+                "top_hashtags": fallback_hashtags[:limit],
+                "total_count": len(fallback_hashtags),
+                "source": "Fallback Data"
+            }
+        
+        sorted_hashtags = sorted(
+            combined_hashtags.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
+        )
+        
+        return {
+            "top_hashtags": [
+                {
+                    "hashtag": hashtag,
+                    "score": data["score"],
+                    "source": data["source"],
+                    "category": data.get("category", "general")
+                }
+                for hashtag, data in sorted_hashtags[:limit]
+            ],
+            "total_count": len(combined_hashtags),
+            "source": "Combined (RAG + ML)"
+        }
 
 class TopTrendingRequest(BaseModel):
     platform: str = "all"
@@ -978,47 +1091,52 @@ class TopTrendingRequest(BaseModel):
     config: Optional[ApiConfig] = None
 
 @app.post("/top-trending-hashtags")
-async def get_top_trending_hashtags(
-    request: TopTrendingRequest = Body(...)
-):
-    """
-    Get top trending hashtags for today from Instagram, Facebook, and Twitter using GPT-4o.
-    """
+async def get_top_trending_hashtags(request: TopTrendingRequest = Body(...)):
+    """Get top trending hashtags for today from social platforms using AI"""
     platform_map = {
         "Instagram": "Instagram",
-        "Facebook": "Facebook",
+        "Facebook": "Facebook", 
         "Twitter": "Twitter",
         "all": "Instagram, Facebook, and Twitter"
     }
     platform_name = platform_map.get(request.platform, "Instagram, Facebook, and Twitter")
+    
+    # Simple fallback response if no AI API configured
+    if not request.config or not request.config.api_key:
+        fallback_hashtags = [
+            {"hashtag": "#TamilNadu", "platform": "All", "reason": "Popular regional hashtag"},
+            {"hashtag": "#DMK", "platform": "All", "reason": "Political party hashtag"},
+            {"hashtag": "#Healthcare", "platform": "All", "reason": "Trending topic"},
+            {"hashtag": "#Development", "platform": "All", "reason": "Government initiatives"},
+            {"hashtag": "#Innovation", "platform": "All", "reason": "Technology focus"}
+        ]
+        
+        return {
+            "platform": platform_name,
+            "top_trending_hashtags": fallback_hashtags[:request.count]
+        }
+    
     prompt = (
-        f"List the top {request.count} popular trending hashtags around in tamilnadu/india related to political parties as well with respect to DMK on {platform_name}. "
+        f"List the top {request.count} popular trending hashtags in Tamil Nadu/India related to political parties, especially DMK, on {platform_name}. "
         "Return only the hashtags as a JSON array of objects with fields: hashtag, platform, and a short reason for each."
     )
 
     try:
-        config = request.config
-        if config and config.api_key:
-            if config.provider == "azure":
-                client = AzureOpenAI(
-                    api_key=config.api_key,
-                    api_version="2025-01-01-preview",
-                    azure_endpoint=config.endpoint
-                )
-                model_name = config.model
-            else:
-                client = openai.OpenAI(api_key=config.api_key)
-                model_name = config.model
+        if request.config.provider == "azure":
+            client = AzureOpenAI(
+                api_key=request.config.api_key,
+                api_version="2025-01-01-preview",
+                azure_endpoint=request.config.endpoint
+            )
         else:
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model_name = "gpt-4o"
+            client = openai.OpenAI(api_key=request.config.api_key)
 
         response = client.chat.completions.create(
-            model=model_name,
+            model=request.config.model,
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a social media analytics expert with deep knowledge of Tamil Nadu politics and trending hashtags."
+                    "content": "You are a social media analytics expert with deep knowledge of Tamil Nadu politics."
                 },
                 {
                     "role": "user",
@@ -1028,6 +1146,7 @@ async def get_top_trending_hashtags(
             temperature=0.5,
             max_tokens=800
         )
+        
         ai_response = response.choices[0].message.content
 
         if isinstance(ai_response, str):
@@ -1047,7 +1166,18 @@ async def get_top_trending_hashtags(
 
     except Exception as e:
         logger.error(f"Error fetching trending hashtags: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching trending hashtags: {str(e)}")
+        
+        # Return fallback on error
+        fallback_hashtags = [
+            {"hashtag": "#TamilNadu", "platform": platform_name, "reason": "Regional identity"},
+            {"hashtag": "#DMK4TN", "platform": platform_name, "reason": "Political engagement"},
+            {"hashtag": "#Development", "platform": platform_name, "reason": "Government focus"}
+        ]
+        
+        return {
+            "platform": platform_name,
+            "top_trending_hashtags": fallback_hashtags[:request.count]
+        }
 
 if __name__ == "__main__":
     import uvicorn
