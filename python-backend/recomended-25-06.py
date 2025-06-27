@@ -152,6 +152,7 @@ class PredictHashtagFullRequest(BaseModel):
     include_tn_politics: bool = False
     language_preference: str = Field(default="both", description="tamil, english, or both")
     enable_sentiment_analysis: bool = Field(default=True, description="Enable advanced sentiment analysis")
+    prediction_method: str = Field(default="auto", description="rag_only, ai_only, or auto")  # NEW FIELD
 
 class PredictionResponse(BaseModel):
     hashtags: List[HashtagResult]
@@ -809,46 +810,11 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
         final_sentiment = request.sentiment or sentiment_analysis['sentiment']
         max_hashtags = min(request.max_hashtags, 20)
         language_preference = request.language_preference
+        prediction_method = request.prediction_method
 
-        if request.config and request.config.api_key:
-            logger.info("Using AI API with RAG enhancement for prediction")
-            
-            rag_context = analyzer.get_rag_context_for_ai(request.content)
-            
-            ai_result = await predict_with_azure_openai_rag(
-                request.content, request.config, max_hashtags, 
-                request.strategies, final_sentiment, 
-                language_preference, rag_context
-            )
-            
-            enhanced_hashtags = analyzer.enhance_ai_results_with_rag(
-                ai_result["hashtags"], request.content
-            )
-            
-            ai_sentiment = ai_result.get("sentiment_analysis", {})
-            sentiment_analysis_obj = SentimentAnalysis(
-                sentiment=ai_sentiment.get("sentiment", sentiment_analysis["sentiment"]),
-                confidence=ai_sentiment.get("confidence", sentiment_analysis["confidence"]),
-                positive_score=ai_sentiment.get("positive_score", sentiment_analysis["positive_score"]),
-                negative_score=ai_sentiment.get("negative_score", sentiment_analysis["negative_score"]),
-                neutral_score=ai_sentiment.get("neutral_score", sentiment_analysis["neutral_score"]),
-                emotional_tone=ai_sentiment.get("emotional_tone"),
-                key_emotions=ai_sentiment.get("key_emotions"),
-                sentiment_keywords=ai_sentiment.get("sentiment_keywords"),
-                associated_party=ai_sentiment.get("associated_party"),
-                party_confidence=ai_sentiment.get("party_confidence")
-            )
-            
-            return PredictionResponse(
-                hashtags=enhanced_hashtags,
-                analysis=ai_result["analysis"],
-                sentiment_analysis=sentiment_analysis_obj,
-                rag_analysis=analyzer.get_rag_analysis_summary(),
-                source=f"AI_{request.config.provider.upper()}_RAG",
-                timestamp=datetime.now().isoformat()
-            )
-        else:
-            logger.info("Using local ML model with RAG for prediction")
+        # Force RAG-only prediction
+        if prediction_method == "rag_only":
+            logger.info("Using RAG-only prediction method")
             result = analyzer.predict_hashtags_with_rag(
                 request.content, max_hashtags, language_preference
             )
@@ -858,7 +824,8 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
                 "keywords": [word for word in request.content.split() if len(word) > 3][:8],
                 "content_type": "general",
                 "language": "mixed",
-                "target_audience": "general public"
+                "target_audience": "general public",
+                "prediction_method": "RAG Only"
             }
             
             sentiment_analysis_obj = SentimentAnalysis(
@@ -874,13 +841,148 @@ async def predict_hashtags(request: PredictHashtagFullRequest):
                 analysis=analysis,
                 sentiment_analysis=sentiment_analysis_obj,
                 rag_analysis=result["rag_analysis"],
-                source="LOCAL_ML_RAG",
+                source="RAG_ONLY",
                 timestamp=datetime.now().isoformat()
             )
+
+        # Force AI-only prediction (requires API config)
+        elif prediction_method == "ai_only":
+            if not request.config or not request.config.api_key:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="API configuration required for AI-only prediction method"
+                )
+            
+            logger.info("Using AI-only prediction method")
+            
+            # Use AI without RAG context for pure AI predictions
+            ai_result = await predict_with_azure_openai_rag(
+                request.content, request.config, max_hashtags, 
+                request.strategies, final_sentiment, 
+                language_preference, ""  # Empty RAG context for AI-only
+            )
+            
+            # Don't enhance with RAG for AI-only mode
+            ai_hashtags = []
+            for hashtag_dict in ai_result["hashtags"]:
+                ai_hashtags.append(HashtagResult(
+                    hashtag=hashtag_dict["hashtag"],
+                    score=hashtag_dict["score"],
+                    category=hashtag_dict["category"],
+                    reasoning=hashtag_dict["reasoning"],
+                    source="new",  # All are new for AI-only
+                    language=hashtag_dict.get("language", "unknown")
+                ))
+            
+            ai_sentiment = ai_result.get("sentiment_analysis", {})
+            sentiment_analysis_obj = SentimentAnalysis(
+                sentiment=ai_sentiment.get("sentiment", sentiment_analysis["sentiment"]),
+                confidence=ai_sentiment.get("confidence", sentiment_analysis["confidence"]),
+                positive_score=ai_sentiment.get("positive_score", sentiment_analysis["positive_score"]),
+                negative_score=ai_sentiment.get("negative_score", sentiment_analysis["negative_score"]),
+                neutral_score=ai_sentiment.get("neutral_score", sentiment_analysis["neutral_score"]),
+                emotional_tone=ai_sentiment.get("emotional_tone"),
+                key_emotions=ai_sentiment.get("key_emotions"),
+                sentiment_keywords=ai_sentiment.get("sentiment_keywords"),
+                associated_party=ai_sentiment.get("associated_party"),
+                party_confidence=ai_sentiment.get("party_confidence")
+            )
+            
+            # Create minimal RAG analysis for AI-only
+            rag_analysis = RAGAnalysis(
+                total_rag_hashtags=len(analyzer.rag_hashtag_frequency),
+                existing_hashtags_found=0,
+                new_hashtags_suggested=len(ai_hashtags),
+                rag_enhanced_hashtags=0,
+                top_rag_hashtags=[]
+            )
+            
+            ai_result["analysis"]["prediction_method"] = "AI Only"
+            
+            return PredictionResponse(
+                hashtags=ai_hashtags,
+                analysis=ai_result["analysis"],
+                sentiment_analysis=sentiment_analysis_obj,
+                rag_analysis=rag_analysis,
+                source=f"AI_{request.config.provider.upper()}_ONLY",
+                timestamp=datetime.now().isoformat()
+            )
+
+        # Auto mode (existing logic)
+        else:
+            if request.config and request.config.api_key:
+                logger.info("Using AI API with RAG enhancement for prediction (Auto mode)")
+                
+                rag_context = analyzer.get_rag_context_for_ai(request.content)
+                
+                ai_result = await predict_with_azure_openai_rag(
+                    request.content, request.config, max_hashtags, 
+                    request.strategies, final_sentiment, 
+                    language_preference, rag_context
+                )
+                
+                enhanced_hashtags = analyzer.enhance_ai_results_with_rag(
+                    ai_result["hashtags"], request.content
+                )
+                
+                ai_sentiment = ai_result.get("sentiment_analysis", {})
+                sentiment_analysis_obj = SentimentAnalysis(
+                    sentiment=ai_sentiment.get("sentiment", sentiment_analysis["sentiment"]),
+                    confidence=ai_sentiment.get("confidence", sentiment_analysis["confidence"]),
+                    positive_score=ai_sentiment.get("positive_score", sentiment_analysis["positive_score"]),
+                    negative_score=ai_sentiment.get("negative_score", sentiment_analysis["negative_score"]),
+                    neutral_score=ai_sentiment.get("neutral_score", sentiment_analysis["neutral_score"]),
+                    emotional_tone=ai_sentiment.get("emotional_tone"),
+                    key_emotions=ai_sentiment.get("key_emotions"),
+                    sentiment_keywords=ai_sentiment.get("sentiment_keywords"),
+                    associated_party=ai_sentiment.get("associated_party"),
+                    party_confidence=ai_sentiment.get("party_confidence")
+                )
+                
+                ai_result["analysis"]["prediction_method"] = "AI + RAG (Auto)"
+                
+                return PredictionResponse(
+                    hashtags=enhanced_hashtags,
+                    analysis=ai_result["analysis"],
+                    sentiment_analysis=sentiment_analysis_obj,
+                    rag_analysis=analyzer.get_rag_analysis_summary(),
+                    source=f"AI_{request.config.provider.upper()}_RAG_AUTO",
+                    timestamp=datetime.now().isoformat()
+                )
+            else:
+                logger.info("Using local ML model with RAG for prediction (Auto mode)")
+                result = analyzer.predict_hashtags_with_rag(
+                    request.content, max_hashtags, language_preference
+                )
+                
+                analysis = {
+                    "themes": ["development", "technology"],
+                    "keywords": [word for word in request.content.split() if len(word) > 3][:8],
+                    "content_type": "general",
+                    "language": "mixed",
+                    "target_audience": "general public",
+                    "prediction_method": "ML + RAG (Auto)"
+                }
+                
+                sentiment_analysis_obj = SentimentAnalysis(
+                    sentiment=sentiment_analysis["sentiment"],
+                    confidence=sentiment_analysis["confidence"],
+                    positive_score=sentiment_analysis["positive_score"],
+                    negative_score=sentiment_analysis["negative_score"],
+                    neutral_score=sentiment_analysis["neutral_score"]
+                )
+                
+                return PredictionResponse(
+                    hashtags=result["hashtags"],
+                    analysis=analysis,
+                    sentiment_analysis=sentiment_analysis_obj,
+                    rag_analysis=result["rag_analysis"],
+                    source="LOCAL_ML_RAG_AUTO",
+                    timestamp=datetime.now().isoformat()
+                )
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint with RAG status"""

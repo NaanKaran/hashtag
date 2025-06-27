@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, Languages, Smile, Frown, Meh, Database, Star, Clock, Lightbulb } from 'lucide-react';
+import { Hash, Target, TrendingUp, Globe, Zap, Copy, Check, Brain, Settings, AlertCircle, Wifi, WifiOff, Sparkles, BarChart3, Filter, Heart, Languages, Smile, Frown, Meh, Database, Star, Clock, Lightbulb, Sliders } from 'lucide-react';
 
 interface Prediction {
   hashtag: string;
@@ -70,11 +70,29 @@ const HashtagPredictor: React.FC = () => {
   const [analysisDetails, setAnalysisDetails] = useState<Analysis | null>(null);
   const [sentimentAnalysis, setSentimentAnalysis] = useState<SentimentAnalysis | null>(null);
   const [ragAnalysis, setRagAnalysis] = useState<RAGAnalysis | null>(null);
-  const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    provider: 'azure',
-    apiKey: '',
-    endpoint: '',
-    model: 'gpt-3.5-turbo'
+  // Fix: Ensure correct API config keys and fallback for missing config
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(() => {
+    const saved = localStorage.getItem('hashtagPredictor_apiConfig');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Backward compatibility: support both apiKey and api_key
+        return {
+          provider: parsed.provider || 'azure',
+          apiKey: parsed.apiKey || parsed.api_key || '',
+          endpoint: parsed.endpoint || '',
+          model: parsed.model || 'gpt-3.5-turbo',
+        };
+      } catch {
+        // fallback
+      }
+    }
+    return {
+      provider: 'azure',
+      apiKey: '',
+      endpoint: '',
+      model: 'gpt-3.5-turbo',
+    };
   });
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -90,7 +108,8 @@ const HashtagPredictor: React.FC = () => {
   const [copiedTopHashtag, setCopiedTopHashtag] = useState<string>('');
   const [ragStats, setRagStats] = useState<any>(null);
   const [hashtagSourceFilter, setHashtagSourceFilter] = useState<string>('all');
-
+  const [predictionMethod, setPredictionMethod] = useState('auto');
+  const [maxHashtags, setMaxHashtags] = useState(10);
   const API_BASE_URL = 'http://localhost:8000';
 
   // Hashtag strategies
@@ -189,12 +208,15 @@ const HashtagPredictor: React.FC = () => {
 
   const loadTopHashtags = async (): Promise<void> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/top-hashtags?limit=10&source=${hashtagSourceFilter}`);
+      const response = await fetch(`${API_BASE_URL}/top-hashtags?limit=10`);
       if (response.ok) {
         const data = await response.json();
-        setTopHashtags(data.top_hashtags ?? []);
+        setTopHashtags(data.top_hashtags || []);
+      } else {
+        setTopHashtags([]);
       }
     } catch (error) {
+      setTopHashtags([]);
       console.error('Failed to load top hashtags:', error);
     }
   };
@@ -221,6 +243,10 @@ const HashtagPredictor: React.FC = () => {
 
   const handlePredict = async (): Promise<void> => {
     if (!content.trim()) return;
+        if (predictionMethod === 'ai_only' && (!apiConfig.apiKey)) {
+      setError('AI-only prediction method requires API configuration. Please configure your API settings.');
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -247,15 +273,16 @@ const HashtagPredictor: React.FC = () => {
 
       let payload: any = {
         content: content,
-        max_hashtags: 15,
+        max_hashtags: maxHashtags,
         strategies: strategiesObj,
         enable_sentiment_analysis: enableSentimentAnalysis,
         language_preference: languagePreference,
-        sentiment: sentimentFilter !== 'all' ? sentimentFilter : undefined
+        sentiment: sentimentFilter !== 'all' ? sentimentFilter : undefined,
+        prediction_method: predictionMethod
       };
 
       // Only add config if apiKey is present
-      if (apiConfig.apiKey) {
+       if (apiConfig.apiKey && predictionMethod !== 'rag_only') {
         payload = {
           ...payload,
           config: {
@@ -301,11 +328,14 @@ const HashtagPredictor: React.FC = () => {
     setTimeout(() => setCopiedHashtag(''), 2000);
   };
 
-  const copyAllHashtags = (): void => {
+  // Fix: Defensive copy for all hashtags
+  const copyAllHashtags = () => {
     const allHashtags = predictions.slice(0, 10).map(p => `#${p.hashtag}`).join(' ');
-    navigator.clipboard.writeText(allHashtags);
-    setCopiedHashtag('all');
-    setTimeout(() => setCopiedHashtag(''), 2000);
+    if (allHashtags) {
+      navigator.clipboard.writeText(allHashtags);
+      setCopiedHashtag('all');
+      setTimeout(() => setCopiedHashtag(''), 2000);
+    }
   };
 
   const saveApiConfig = (): void => {
@@ -337,6 +367,32 @@ const HashtagPredictor: React.FC = () => {
         return 'API Error - Using Fallback';
       default:
         return 'Connecting to API...';
+    }
+  };
+
+    const getPredictionMethodInfo = () => {
+    switch (predictionMethod) {
+      case 'rag_only':
+        return 'Using proven hashtags from historical campaign data';
+      case 'ai_only':
+        return 'Using AI creativity for fresh hashtag suggestions';
+      case 'auto':
+        return 'Smart combination of AI creativity + proven historical data';
+      default:
+        return '';
+    }
+  };
+
+  const getPredictionMethodIcon = () => {
+    switch (predictionMethod) {
+      case 'rag_only':
+        return <Database className="w-4 h-4 text-emerald-600" />;
+      case 'ai_only':
+        return <Brain className="w-4 h-4 text-purple-600" />;
+      case 'auto':
+        return <Sparkles className="w-4 h-4 text-blue-600" />;
+      default:
+        return <Hash className="w-4 h-4 text-gray-600" />;
     }
   };
 
@@ -581,6 +637,119 @@ const HashtagPredictor: React.FC = () => {
                     <span className="text-blue-600">
                       {content.length > 0 ? '✓ Ready for RAG analysis' : 'Enter content to start'}
                     </span>
+                  </div>
+                </div>
+                {/* Prediction Method Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Sliders className="w-4 h-4" />
+                    Prediction Method
+                  </label>
+                  <div className="space-y-3">
+                    <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
+                      predictionMethod === 'auto'
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="predictionMethod"
+                        value="auto"
+                        checked={predictionMethod === 'auto'}
+                        onChange={(e) => setPredictionMethod(e.target.value)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Sparkles className="w-4 h-4 text-blue-600" />
+                        <div>
+                          <div className="font-medium text-gray-800">Auto (Recommended)</div>
+                          <div className="text-xs text-gray-600">Smart combination of AI creativity + proven historical data</div>
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
+                      predictionMethod === 'rag_only'
+                        ? 'border-emerald-500 bg-emerald-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="predictionMethod"
+                        value="rag_only"
+                        checked={predictionMethod === 'rag_only'}
+                        onChange={(e) => setPredictionMethod(e.target.value)}
+                        className="w-4 h-4 text-emerald-600 border-gray-300 focus:ring-emerald-500"
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Database className="w-4 h-4 text-emerald-600" />
+                        <div>
+                          <div className="font-medium text-gray-800">RAG Only</div>
+                          <div className="text-xs text-gray-600">Use proven hashtags from historical campaign data</div>
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
+                      predictionMethod === 'ai_only'
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="predictionMethod"
+                        value="ai_only"
+                        checked={predictionMethod === 'ai_only'}
+                        onChange={(e) => setPredictionMethod(e.target.value)}
+                        className="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Brain className="w-4 h-4 text-purple-600" />
+                        <div>
+                          <div className="font-medium text-gray-800">
+                            AI Only 
+                            {predictionMethod === 'ai_only' && !apiConfig.apiKey && (
+                              <span className="text-red-600 text-xs ml-1">(API Required)</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-600">Use AI creativity for fresh hashtag suggestions</div>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-start gap-2">
+                      {getPredictionMethodIcon()}
+                      <p className="text-xs text-gray-600">{getPredictionMethodInfo()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hashtag Count Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Hash className="w-4 h-4" />
+                    Number of Hashtags
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="range"
+                      min="5"
+                      max="20"
+                      value={maxHashtags}
+                      onChange={(e) => setMaxHashtags(parseInt(e.target.value))}
+                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">{maxHashtags}</span>
+                      <span className="text-xs text-gray-500">hashtags</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>5 (Focused)</span>
+                    <span>10 (Default)</span>
+                    <span>20 (Comprehensive)</span>
                   </div>
                 </div>
 
@@ -872,8 +1041,16 @@ const HashtagPredictor: React.FC = () => {
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
                     <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-gray-600 font-medium">AI + RAG analyzing content...</p>
-                    <p className="text-gray-500 text-sm mt-1">Matching against proven hashtag database</p>
+                                       <p className="text-gray-600 font-medium">
+                      {predictionMethod === 'rag_only' ? 'RAG analyzing content...' : 
+                       predictionMethod === 'ai_only' ? 'AI analyzing content...' : 
+                       'AI + RAG analyzing content...'}
+                    </p>
+                    <p className="text-gray-500 text-sm mt-1">
+                      {predictionMethod === 'rag_only' ? 'Matching against proven hashtag database' : 
+                       predictionMethod === 'ai_only' ? 'Generating creative hashtag suggestions' : 
+                       'Combining AI creativity with proven hashtags'}
+                    </p>
                   </div>
                 </div>
               )}
@@ -1150,16 +1327,17 @@ const TopTrendingHashtags: React.FC<TopTrendingHashtagsProps> = ({ apiConfig }) 
     setError('');
     setHashtags([]);
     try {
+      const configToSend = apiKey
+        ? { api_key: apiKey, provider, endpoint, model }
+        : undefined;
       const resp = await fetch(`${API_BASE_URL}/top-trending-hashtags`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform: selectedPlatform,
           count: 10,
-          config: apiKey
-            ? { api_key: apiKey, provider, endpoint, model }
-            : undefined
-        })
+          config: configToSend,
+        }),
       });
       if (!resp.ok) throw new Error('Failed to fetch trending hashtags');
       const data = await resp.json();
